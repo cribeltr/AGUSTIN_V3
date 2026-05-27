@@ -219,6 +219,97 @@
     /* Toolbars con wrap */
     .flex.flex-wrap.gap-2 { gap: 6px !important; }
   }
+
+  /* Panel flotante de comentarios de sesión */
+  .rec-panel {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    width: 360px;
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(15,23,42,0.20);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .rec-panel.hidden { display: none; }
+  .rec-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: #0f172a;
+    color: white;
+    cursor: move;
+    user-select: none;
+  }
+  .rec-panel-title { font-weight: 600; flex: 1; font-size: 13px; }
+  .rec-panel-count {
+    background: rgba(255,255,255,0.18);
+    color: white;
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .rec-panel-btn {
+    background: transparent; border: 0; color: white;
+    width: 24px; height: 24px;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; border-radius: 4px;
+  }
+  .rec-panel-btn:hover { background: rgba(255,255,255,0.15); }
+  .rec-panel-btn .chev-down { transition: transform 150ms; }
+  .rec-panel.collapsed .chev-down { transform: rotate(-180deg); }
+  .rec-panel-body {
+    padding: 10px;
+    background: white;
+    max-height: 260px;
+    transition: max-height 150ms ease, padding 150ms ease;
+    overflow: hidden;
+  }
+  .rec-panel.collapsed .rec-panel-body { max-height: 0; padding-top: 0; padding-bottom: 0; }
+  .rec-panel-body textarea {
+    width: 100%;
+    min-height: 70px;
+    resize: vertical;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    box-sizing: border-box;
+  }
+  .rec-panel-body textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+  .rec-panel-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .rec-panel-msg {
+    flex: 1;
+    font-size: 11px;
+    color: #15803d;
+    opacity: 0;
+    transition: opacity 200ms;
+  }
+  .rec-panel-msg.show { opacity: 1; }
+  @media (max-width: 768px) {
+    .rec-panel {
+      left: 0; right: 0; bottom: 0; top: auto;
+      width: auto;
+      border-radius: 10px 10px 0 0;
+    }
+    .rec-panel-header { cursor: default; }
+    .rec-panel-body { max-height: 220px; }
+    .rec-panel-body textarea { font-size: 16px; }
+  }
 </style>
 </head>
 <body class="bg-slate-100 text-slate-800">
@@ -239,11 +330,10 @@
       <div class="sidebar-btn active" data-view="equipos" title="Buscar equipos"><i data-lucide="search"></i><span class="s-text">Buscar equipos</span></div>
       <div class="sidebar-btn" data-view="hoy" title="Hoy"><i data-lucide="calendar-clock"></i><span class="s-text">Hoy</span><span id="badge-hoy" class="sidebar-badge red" style="display:none;">0</span></div>
       <div class="sidebar-btn" data-view="pendientes" title="Pendientes"><i data-lucide="alert-circle"></i><span class="s-text">Pendientes</span><span id="badge-pendientes" class="sidebar-badge amber" style="display:none;">0</span></div>
-      <div class="sidebar-btn" data-view="verificacion" title="Verificación de carga"><i data-lucide="bar-chart-3"></i><span class="s-text">Verificación de carga</span></div>
       <div class="sidebar-btn" data-view="agenda" title="Agenda"><i data-lucide="users"></i><span class="s-text">Agenda</span></div>
     </nav>
     <div class="p-3 text-xs text-slate-400 border-t border-slate-700 space-y-2 s-foot">
-      <div>v4.7 · datos locales</div>
+      <div>v5.0 · datos locales</div>
       <button onclick="openGasSettings()" class="sidebar-link" title="Configurar y sincronizar con Google Sheets">
         <span id="gas-status-dot" class="gas-dot off"></span><span>Google Sheets</span>
       </button>
@@ -304,7 +394,6 @@
       <div id="view-equipos" class="hidden h-full flex flex-col"></div>
       <div id="view-hoy" class="hidden h-full flex flex-col"></div>
       <div id="view-pendientes" class="hidden h-full flex flex-col"></div>
-      <div id="view-verificacion" class="hidden h-full p-6 overflow-auto"></div>
       <div id="view-agenda" class="hidden h-full overflow-auto"></div>
       <div id="view-historial" class="hidden h-full flex flex-col"></div>
     </main>
@@ -313,6 +402,8 @@
 
 <!-- Modals container -->
 <div id="modals"></div>
+<!-- Datalist global para typeahead de ejecutores (form de evento y de pendiente) -->
+<datalist id="ejecutores-dl"></datalist>
 <div id="toasts" class="toast"></div>
 <!-- Loading overlay -->
 <div id="ld" class="ld-overlay" role="status" aria-live="polite">
@@ -355,6 +446,10 @@ const SEGUIMIENTO_TIPOS = {
   bloqueo:      { label: 'Bloqueo',       icon: 'octagon',        color: 'red',   cls: 'bg-red-100 text-red-800' },
   cierre:       { label: 'Cierre',        icon: 'check-circle-2', color: 'slate', cls: 'bg-slate-200 text-slate-800' }
 };
+/* TIPOS_EVENTO incluye los 9 originales para que eventos viejos sigan
+   renderizándose con su etiqueta e ícono. TIPOS_EVENTO_NUEVO_REGISTRO
+   es la lista de tipos que aparecen en el selector "Nuevo registro"
+   (v5.0: reducidos a los 5 efectivamente usados). */
 const TIPOS_EVENTO = {
   mp:                { label: 'Mantención preventiva',     icon: 'wrench',         color: 'blue' },
   reporte_servicio:  { label: 'Reporte de servicio',       icon: 'clipboard-list', color: 'teal' },
@@ -366,6 +461,7 @@ const TIPOS_EVENTO = {
   recepcion:         { label: 'Recepción',                 icon: 'package-check',  color: 'green' },
   reparacion:        { label: 'Reparación',                icon: 'hammer',         color: 'red' }
 };
+const TIPOS_EVENTO_NUEVO_REGISTRO = ['mp','visita_tecnica','envio','solicitud','recepcion'];
 /* Encabezados esperados en la fila 7 (idx 6) de ambas hojas */
 const PMP_HEADERS_EXPECTED = ['Familia','ID','N° Carpeta','N° Inventario','Equipo','Servicio','Unidad','Ubicación','Procedencia','Marca','Modelo','Serie','Año Instalación','Vida Útil Residual','Clasificación','ENU/Baja'];
 /* Aliases aceptados por columna (se normalizan sin espacios, case-insensitive) */
@@ -426,6 +522,27 @@ function loadPersisted(){
       Object.values(state.eventos).forEach(arr=>{
         (arr||[]).forEach(ev=>{ if (!ev.creadoEn && ev.fecha) ev.creadoEn = ev.fecha; });
       });
+      /* Migración v5.0: estados "creado" y "detenido" → "abierto".
+         La app simplificó a 2 estados (abierto/cerrado). Pendientes
+         migrados conservan toda su data (fechas, ejecutor, tareas, etc).
+         Marcador para no re-procesar. */
+      const MIG_ESTADOS_V50 = 'mp_app_mig_estados_v50';
+      const migEstadosDone = localStorage.getItem(MIG_ESTADOS_V50) === '1';
+      if (!migEstadosDone){
+        let migrados = 0;
+        Object.values(state.pendientes).forEach(arr=>{
+          (arr||[]).forEach(p=>{
+            if (p.estado === 'creado' || p.estado === 'detenido'){
+              p.estado = 'abierto';
+              migrados++;
+            }
+          });
+        });
+        try { localStorage.setItem(MIG_ESTADOS_V50, '1'); } catch(_){}
+        if (migrados){
+          setTimeout(()=> toast(`v5.0: ${migrados} pendiente(s) en estados "Por iniciar"/"Detenido" pasaron a "Abierto"`, 'ok'), 800);
+        }
+      }
       /* Migración v4.0: extraer pendientes de observaciones legacy
          que tengan sección PENDIENTES:/Pendientes: (formato del
          clasificador v3.14+). Solo se ejecuta una vez por evento. */
@@ -571,22 +688,36 @@ function allPendienteIds_(){
   Object.values(state.pendientes).forEach(arr=> (arr||[]).forEach(p=> s.add(String(p.id))));
   return s;
 }
+function allTareaIds_(){
+  const s = new Set();
+  Object.values(state.pendientes).forEach(arr=>
+    (arr||[]).forEach(p=>
+      (p.tareas||[]).forEach(t=> { if (t && t.id) s.add(String(t.id)); })
+    )
+  );
+  return s;
+}
 function toast(msg, kind='ok', action){
   const wrap = document.getElementById('toasts');
   const div = document.createElement('div');
   div.className = kind;
-  if (action && action.label && typeof action.fn === 'function'){
+  const actions = Array.isArray(action)
+    ? action.filter(a=> a && a.label && typeof a.fn === 'function')
+    : (action && action.label && typeof action.fn === 'function' ? [action] : []);
+  if (actions.length){
     const span = document.createElement('span');
     span.textContent = msg;
     div.appendChild(span);
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = action.label;
-    btn.style.cssText = 'margin-left:10px;text-decoration:underline;color:inherit;background:transparent;border:0;cursor:pointer;font-weight:600;font-size:13px;';
-    btn.addEventListener('click', ()=>{ try { action.fn(); } finally { div.remove(); } });
-    div.appendChild(btn);
+    actions.forEach(a=>{
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = a.label;
+      btn.style.cssText = 'margin-left:10px;text-decoration:underline;color:inherit;background:transparent;border:0;cursor:pointer;font-weight:600;font-size:13px;';
+      btn.addEventListener('click', ()=>{ try { a.fn(); } finally { div.remove(); } });
+      div.appendChild(btn);
+    });
     wrap.appendChild(div);
-    setTimeout(()=>div.remove(), 7000);
+    setTimeout(()=>div.remove(), actions.length > 1 ? 9000 : 7000);
   } else {
     div.textContent = msg;
     wrap.appendChild(div);
@@ -630,6 +761,7 @@ function dateShortcuts(inputId, mode){
   const items = mode === 'fwd'
     ? [
         { label:'Hoy',    days: 0,  title:'Fijar a hoy' },
+        { label:'+1 día', days: 1,  title:'Sumar 1 día al valor actual' },
         { label:'+1 sem', days: 7,  title:'Sumar 7 días al valor actual' },
         { label:'+1 mes', days: 30, title:'Sumar 30 días al valor actual' }
       ]
@@ -759,7 +891,7 @@ document.getElementById('file-input').addEventListener('change', async (e)=>{
     saveData();
     updateCounter();
     document.getElementById('no-data').classList.add('hidden');
-    selectView('verificacion');
+    selectView('hoy');
     /* Subir el maestro a Drive para que esté disponible en otros navegadores. */
     if (gasState.url){
       (async ()=>{
@@ -944,6 +1076,9 @@ function effectiveRegRes(e){
   });
   return { results: out, userMonths, ejecutores };
 }
+
+/* v5.0: effectiveProgramacion removido. Sin auto-reprogramación, no hay
+   "R" derivada. La grilla del modal usa e.pmpMeses directo del .xlsm. */
 function shortEjec(name){
   if (!name) return '';
   const parts = String(name).trim().split(/\s+/);
@@ -1039,13 +1174,13 @@ function updateSidebarBadges(){
 /* ============================================================
    NAVEGACIÓN ENTRE VISTAS
    ============================================================ */
-const VIEWS = ['equipos','hoy','pendientes','verificacion','agenda','historial'];
-const VIEWS_SIDEBAR = ['equipos','hoy','pendientes','verificacion','agenda'];
-const TITLES = { equipos:'Buscar equipos', hoy:'Vista del día', pendientes:'Pendientes', verificacion:'Verificación de carga', agenda:'Agenda', historial:'Historial del equipo' };
+const VIEWS = ['equipos','hoy','pendientes','agenda','historial'];
+const VIEWS_SIDEBAR = ['equipos','hoy','pendientes','agenda'];
+const TITLES = { equipos:'Buscar equipos', hoy:'Vista del día', pendientes:'Pendientes', agenda:'Agenda', historial:'Historial del equipo' };
 function selectView(v){
-  /* Equipos/Verificación necesitan el .xlsm cargado.
+  /* Equipos necesita el .xlsm cargado.
      Pendientes/Hoy/Agenda pueden verse con sólo los datos traídos de Sheets. */
-  const needsXlsm = (v === 'equipos' || v === 'verificacion');
+  const needsXlsm = (v === 'equipos');
   if (needsXlsm && !state.loaded){ toast('Cargue primero el archivo maestro','err'); return; }
   document.getElementById('no-data').classList.add('hidden');
   VIEWS.forEach(x=>{
@@ -1058,7 +1193,6 @@ function selectView(v){
   if      (v==='equipos')      renderEquipos();
   else if (v==='hoy')          renderHoy();
   else if (v==='pendientes')   renderPendientes();
-  else if (v==='verificacion') renderVerificacion();
   else if (v==='agenda')       renderAgenda();
   else if (v==='historial')    renderHistorialView();
   updateSidebarBadges();
@@ -1246,6 +1380,7 @@ function getPendienteEstado(e){
   const today = todayISO();
   if (ps.some(p => isVencido(p, today))) return 'vencido';
   if (ps.some(p => p.estado==='abierto')) return 'abierto';
+  if (ps.some(p => p.estado==='detenido')) return 'detenido';
   return 'cerrado';
 }
 function estadoEquipoBadge(s){
@@ -1264,7 +1399,8 @@ function diasAlertBadge_(dias){
 function estadoPendienteBadge(s, count){
   if (!s) return '<span class="text-slate-400 text-xs">—</span>';
   if (s === 'vencido') return `<span class="badge bg-red-100 text-red-800" title="${count} pendiente(s)">Vencido</span>`;
-  if (s === 'abierto') return `<span class="badge bg-amber-100 text-amber-800" title="${count} pendiente(s)">Abierto</span>`;
+  if (s === 'abierto') return `<span class="badge bg-amber-100 text-amber-800" title="${count} pendiente(s)">En gestión</span>`;
+  if (s === 'detenido') return `<span class="badge bg-slate-300 text-slate-800" title="${count} pendiente(s)">Detenido</span>`;
   if (s === 'cerrado') return `<span class="badge bg-slate-200 text-slate-700" title="${count} pendiente(s)">Cerrado</span>`;
   return '<span class="text-slate-400 text-xs">—</span>';
 }
@@ -1328,7 +1464,8 @@ function renderEquipos(){
       <select id="f-estadoPe" class="input w-auto" style="max-width:200px;">
         <option value="">Estado pendiente: todos</option>
         <option value="vencido">Vencido</option>
-        <option value="abierto">Abierto</option>
+        <option value="abierto">En gestión</option>
+        <option value="detenido">Detenido</option>
         <option value="cerrado">Cerrado</option>
         <option value="sin">Sin pendientes</option>
       </select>
@@ -1471,11 +1608,11 @@ function renderHoy(){
       </div>
 
       <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-5">
-        ${kpiCard('Vencidos', vencidos.length, 'red', 'alert-triangle')}
-        ${kpiCard('Por recontactar', porRecontactar.length, 'amber', 'bell')}
-        ${kpiCard('Para hoy', hoy.length, 'amber', 'calendar-check')}
-        ${kpiCard('Próximos 7 días', prox.length, 'blue', 'calendar-days')}
-        ${kpiCard('Sin compromiso', sinComp.length, 'gray', 'help-circle')}
+        ${kpiCard('Vencidos', vencidos.length, 'red', 'alert-triangle', 'vencidos')}
+        ${kpiCard('Por recontactar', porRecontactar.length, 'amber', 'bell', 'recontactar')}
+        ${kpiCard('Para hoy', hoy.length, 'amber', 'calendar-check', 'hoy')}
+        ${kpiCard('Próximos 7 días', prox.length, 'blue', 'calendar-days', 'semana')}
+        ${kpiCard('Sin compromiso', sinComp.length, 'gray', 'help-circle', 'sin')}
         ${kpiCard('Cerrados hoy', cerradosHoy.length, 'green', 'check-circle-2')}
         ${kpiCard('Registros hoy', registrosHoy.length, 'blue', 'history')}
         ${kpiCard('Alerta > 30d', equiposAlerta.length, 'red', 'alert-octagon')}
@@ -1498,7 +1635,21 @@ function renderHoy(){
   bindPendActions();
   bindLogActions();
   _bindPendTablaClicks_();
+  _bindHoyKpiClicks_();
   lucide.createIcons();
+}
+function _bindHoyKpiClicks_(){
+  document.querySelectorAll('#view-hoy [data-kpi-period]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      pendFilters.q = '';
+      pendFilters.estado = 'todos';
+      pendFilters.mio = false;
+      pendFilters.servicio = '';
+      pendFilters.ejecutor = '';
+      pendFilters.periodo = el.dataset.kpiPeriod;
+      selectView('pendientes');
+    });
+  });
 }
 /* ============================================================
    TABLAS DE PENDIENTES POR SERVICIO Y POR RESPONSABLE
@@ -1547,7 +1698,11 @@ function _pendTablaHTML_(titulo, icon, color, agrupador, items, today, kind){
       return `<td style="text-align:center;" class="${cls} hover:opacity-80 cursor-pointer" data-pend-tabla data-kind="${kind}" data-key="${escapeHtml(k)}" data-periodo="${c.id}">${n}</td>`;
     }).join('')}</tr>`;
   }).join('');
-  const totalRow = `<tr class="font-semibold bg-slate-100"><td>Total</td>${PEND_TABLA_COLS.map(c=>`<td style="text-align:center;">${totales[c.id]||0}</td>`).join('')}</tr>`;
+  const totalRow = `<tr class="font-semibold bg-slate-100"><td>Total</td>${PEND_TABLA_COLS.map(c=>{
+      const n = totales[c.id]||0;
+      if (!n) return `<td style="text-align:center;color:#cbd5e1;">·</td>`;
+      return `<td style="text-align:center;" class="hover:opacity-80 cursor-pointer" data-pend-tabla data-kind="${kind}" data-key="__all__" data-periodo="${c.id}" title="Ver todos los pendientes del periodo (sin filtrar por ${kind==='servicio'?'servicio':'responsable'})">${n}</td>`;
+    }).join('')}</tr>`;
   return `<details open class="mb-3 bg-white border border-slate-200 rounded">
     <summary class="px-3 py-2 section-title ${color}"><i data-lucide="chevron-right" class="chev"></i><i data-lucide="${icon}"></i> ${escapeHtml(titulo)} <span class="count">${claves.length}</span></summary>
     <div class="p-2 overflow-auto">
@@ -1556,21 +1711,8 @@ function _pendTablaHTML_(titulo, icon, color, agrupador, items, today, kind){
     </div>
   </details>`;
 }
-function pendientesTablasSection_(){
-  const today = todayISO();
-  const all = flatPendientes();
-  const porServicio = _pendTablaHTML_(
-    'Pendientes por servicio', 'building-2', 'blue',
-    (p)=> (p.eq && p.eq.servicio) || p.servicio || '(general)',
-    all, today, 'servicio'
-  );
-  const porResponsable = _pendTablaHTML_(
-    'Pendientes por responsable', 'user-check', 'blue',
-    (p)=> p.ejecutor || '(sin asignar)',
-    all, today, 'ejecutor'
-  );
-  return porServicio + porResponsable;
-}
+/* v5.0: tablas Pendientes por servicio/responsable eliminadas del flujo. */
+function pendientesTablasSection_(){ return ''; }
 function _bindPendTablaClicks_(){
   document.querySelectorAll('[data-pend-tabla]').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -1580,8 +1722,15 @@ function _bindPendTablaClicks_(){
       pendFilters.servicio = '';
       pendFilters.ejecutor = '';
       const k = el.dataset.key;
-      if (el.dataset.kind === 'servicio') pendFilters.servicio = (k === '(general)' ? '__general__' : k);
-      else                                pendFilters.ejecutor = (k === '(sin asignar)' ? '__sin_asignar__' : k);
+      if (k === '__all__'){
+        /* Fila Total: no filtra por servicio/responsable, sólo por período */
+        pendFilters.servicio = '';
+        pendFilters.ejecutor = '';
+      } else if (el.dataset.kind === 'servicio'){
+        pendFilters.servicio = (k === '(general)' ? '__general__' : k);
+      } else {
+        pendFilters.ejecutor = (k === '(sin asignar)' ? '__sin_asignar__' : k);
+      }
       const per = el.dataset.periodo;
       pendFilters.periodo = per === 'porIniciar' ? 'porIniciar'
                           : per === 'vencidos' ? 'vencidos'
@@ -1614,9 +1763,12 @@ function equiposAlertaSection_(items){
   </details>`;
 }
 
-function kpiCard(label, n, color, icon){
+function kpiCard(label, n, color, icon, clickPeriod){
   const cls = { red:'border-red-200 bg-red-50 text-red-700', amber:'border-amber-200 bg-amber-50 text-amber-700', blue:'border-blue-200 bg-blue-50 text-blue-700', green:'border-green-200 bg-green-50 text-green-700', gray:'border-slate-200 bg-white text-slate-600' }[color];
-  return `<div class="rounded border ${cls} p-3 flex items-center gap-3">
+  const clickAttrs = clickPeriod
+    ? ` data-kpi-period="${escapeHtml(clickPeriod)}" class="rounded border ${cls} p-3 flex items-center gap-3 cursor-pointer hover:shadow transition" title="Ver lista filtrada en Pendientes"`
+    : ` class="rounded border ${cls} p-3 flex items-center gap-3"`;
+  return `<div${clickAttrs}>
     <i data-lucide="${icon}"></i>
     <div>
       <div class="text-xs">${escapeHtml(label)}</div>
@@ -1634,15 +1786,12 @@ function pendSection(title, color, icon, items, defaultOpen){
 function pendienteCardHTML(p){
   const today = todayISO();
   const cerrado = p.estado === 'cerrado';
-  const creado = p.estado === 'creado';
   const vencido = isVencido(p, today);
   const recVencido = isRecordatorioVencido(p, today);
   const dias = p.fechaCompromiso ? diffDays(p.fechaCompromiso, today) : null;
   let diasLbl = '';
   if (cerrado){
     diasLbl = `<span class="pill bg-green-100 text-green-800">Cerrado${p.fechaCierre?' '+fmtDateInput(p.fechaCierre):''}</span>`;
-  } else if (creado){
-    diasLbl = `<span class="pill bg-indigo-100 text-indigo-800"><i data-lucide="hourglass"></i> Por iniciar</span>`;
   } else if (dias !== null){
     if (dias < 0) diasLbl = `<span class="pill bg-red-100 text-red-800">Vencido hace ${-dias} d</span>`;
     else if (dias === 0) diasLbl = `<span class="pill bg-amber-100 text-amber-800">Hoy</span>`;
@@ -1666,7 +1815,6 @@ function pendienteCardHTML(p){
     ? '<span class="pill bg-indigo-100 text-indigo-800"><i data-lucide="clipboard-list"></i> Actividad general</span>'
     : `${escapeHtml(p.eq?.equipo || '(sin equipo)')} · ${escapeHtml(p.eq?.inv || p.eq?.id || p.key)}`;
   const cardBg = cerrado ? 'border-slate-200 bg-slate-50'
-                : creado ? 'border-indigo-300 bg-indigo-50/60'
                 : (vencido || recVencido ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white');
   const descCls = cerrado ? 'line-through text-slate-500' : 'text-slate-800';
   /* Última acción */
@@ -1691,7 +1839,6 @@ function pendienteCardHTML(p){
   }
   return `<div class="border ${cardBg} rounded p-3">
     <div class="flex items-start gap-2">
-      <input type="checkbox" ${cerrado?'checked':''} class="mt-1" data-pend-toggle data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}" />
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap mb-1">
           ${esGeneral
@@ -1700,7 +1847,7 @@ function pendienteCardHTML(p){
           ${diasLbl}${recHtml}${ejecPill}${tareasPill}${eventoPill}
           <button class="btn btn-secondary btn-xs ml-auto" title="Editar pendiente" data-edit-pend data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="edit-3"></i></button>
         </div>
-        <div class="text-sm ${descCls} mb-1">${escapeHtml(p.descripcion)}</div>
+        <div class="text-sm ${descCls} mb-1 cursor-pointer hover:text-blue-700" title="Ver detalle del pendiente" data-pend-detalle data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}">${escapeHtml(p.descripcion)}</div>
         <div class="text-xs text-slate-500 flex flex-wrap gap-3">
           <span><b>Creado:</b> ${fmtDateInput(p.fecha)}</span>
           ${p.fechaCompromiso?`<span><b>Compromiso:</b> ${fmtDateInput(p.fechaCompromiso)}</span>`:''}
@@ -1711,10 +1858,8 @@ function pendienteCardHTML(p){
       <div class="flex flex-col gap-1">
         ${cerrado
           ? `<button class="btn btn-secondary btn-xs" title="Reabrir" data-pend-toggle-btn data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="rotate-ccw"></i> Reabrir</button>`
-          : creado
-            ? `<button class="btn btn-primary btn-xs" title="Iniciar este pendiente (compromiso a 7 días)" data-pend-start data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="play"></i> Iniciar</button>
-               <button class="btn btn-secondary btn-xs" title="Editar antes de iniciar" data-edit-pend data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="edit-3"></i> Editar</button>`
-            : `<button class="btn btn-primary btn-xs" title="Registrar un seguimiento (delegación, recordatorio, avance, cierre)" data-pend-update data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="message-square-plus"></i> Seguimiento</button>
+          : `<button class="btn btn-primary btn-xs" title="Registrar un seguimiento (delegación, recordatorio, avance, cierre)" data-pend-update data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="message-square-plus"></i> Seguimiento</button>
+             <button class="btn btn-success btn-xs" title="Cerrar este pendiente (marcarlo como terminado)" data-pend-close data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="check"></i> Cerrar</button>
              <button class="btn btn-secondary btn-xs" title="Postergar compromiso 1 día" data-pend-snooze="1" data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="clock"></i> +1d</button>
              <button class="btn btn-secondary btn-xs" title="Postergar compromiso 7 días" data-pend-snooze="7" data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="clock"></i> +7d</button>`}
       </div>
@@ -1740,10 +1885,186 @@ function bindPendActions(){
   document.querySelectorAll('[data-edit-pend]').forEach(el=>{
     el.addEventListener('click', ()=> openPendienteForm(el.dataset.key, el.dataset.pid));
   });
-  document.querySelectorAll('[data-pend-start]').forEach(el=>{
-    el.addEventListener('click', ()=> startPendiente(el.dataset.key, el.dataset.pid));
+  document.querySelectorAll('[data-pend-close]').forEach(el=>{
+    el.addEventListener('click', ()=> cerrarPendiente(el.dataset.key, el.dataset.pid));
+  });
+  document.querySelectorAll('[data-pend-detalle]').forEach(el=>{
+    el.addEventListener('click', ()=> openPendienteDetalle(el.dataset.key, el.dataset.pid));
   });
 }
+
+/* Modal de detalle del pendiente. Muestra descripción completa, info,
+   lista de tareas con check/eliminar/agregar, lista de seguimientos
+   con agregar/eliminar. Botones: Editar, Cerrar pendiente.
+   Al hacer cambios (toggle/agregar/eliminar) se re-abre para reflejar. */
+function openPendienteDetalle(key, pid){
+  const p = findPendiente(key, pid);
+  if (!p){ toast('Pendiente no encontrado','err'); return; }
+  const eq = state.equipos.find(e=>e.key===key) || null;
+  const eqLbl = key === 'general'
+    ? '(Actividad general)'
+    : `${eq?.equipo || '(sin equipo)'} · ${eq?.inv || eq?.id || key}`;
+  const today = todayISO();
+  const cerrado = p.estado === 'cerrado';
+  const creado = p.estado === 'creado';
+  const detenido = p.estado === 'detenido';
+  const venc = isVencido(p, today);
+
+  const estadoBadge = cerrado
+    ? `<span class="pill bg-green-100 text-green-800">Cerrado${p.fechaCierre?' '+fmtDateInput(p.fechaCierre):''}</span>`
+    : creado
+      ? `<span class="pill bg-indigo-100 text-indigo-800"><i data-lucide="hourglass"></i> Por iniciar</span>`
+      : detenido
+        ? `<span class="pill bg-slate-300 text-slate-800"><i data-lucide="pause"></i> Detenido</span>`
+        : venc
+          ? `<span class="pill bg-red-100 text-red-800">Vencido</span>`
+          : `<span class="pill bg-amber-100 text-amber-800">En gestión</span>`;
+
+  const tareas = p.tareas || [];
+  const acts = (p.actualizaciones || []).slice().sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+
+  const id = 'pd-' + uid();
+  const html = `
+    <div class="modal-bg" id="${id}" onclick="if(event.target===this) document.getElementById('${id}').remove();">
+      <div class="modal modal-sm" style="max-width:640px;">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center gap-2 sticky top-0 bg-white z-10">
+          <i data-lucide="clipboard-list" class="text-indigo-600"></i>
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-slate-800">Detalle del pendiente</div>
+            <div class="text-xs text-slate-500 truncate" title="${escapeHtml(eqLbl)}">${escapeHtml(eqLbl)}</div>
+          </div>
+          <button class="btn btn-secondary" onclick="document.getElementById('${id}').remove();"><i data-lucide="x"></i> Cerrar</button>
+        </div>
+        <div class="p-5 space-y-4">
+          <div>
+            <div class="text-sm text-slate-800 whitespace-pre-wrap">${escapeHtml(p.descripcion || '(sin descripción)')}</div>
+            <div class="flex flex-wrap gap-2 mt-2 text-xs">
+              ${estadoBadge}
+              ${p.fechaCompromiso ? `<span class="pill bg-slate-100 text-slate-700"><i data-lucide="calendar-check"></i> Compromiso: ${fmtDateInput(p.fechaCompromiso)}</span>` : ''}
+              ${p.proximoRecordatorio ? `<span class="pill bg-blue-100 text-blue-800"><i data-lucide="bell"></i> Recordatorio: ${fmtDateInput(p.proximoRecordatorio)}</span>` : ''}
+              ${p.ejecutor ? `<span class="pill bg-slate-100 text-slate-700"><i data-lucide="user"></i> ${escapeHtml(p.ejecutor)}</span>` : '<span class="pill bg-amber-100 text-amber-800">Sin ejecutor</span>'}
+              <span class="pill bg-slate-100 text-slate-700">Creado ${fmtDateInput(p.fecha)}</span>
+            </div>
+          </div>
+
+          <div class="border-t border-slate-100 pt-3">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-sm font-semibold text-slate-700"><i data-lucide="list-checks"></i> Tareas (${tareas.filter(t=>t.estado==='abierto').length} abiertas / ${tareas.length} totales)</div>
+              <button class="btn btn-secondary btn-xs" data-pd-add-tarea><i data-lucide="plus"></i> Agregar tarea</button>
+            </div>
+            ${tareas.length ? `<ul class="space-y-1">${tareas.map(t=>`
+              <li class="flex items-start gap-2 text-sm border border-slate-200 rounded p-2 bg-white">
+                <input type="checkbox" ${t.estado==='cerrado'?'checked':''} data-pd-toggle-tarea data-tid="${escapeHtml(t.id)}" class="mt-1" />
+                <span class="flex-1 ${t.estado==='cerrado'?'line-through text-slate-400':'text-slate-700'}">${escapeHtml(t.descripcion||'')}</span>
+                <button class="text-slate-400 hover:text-red-600" data-pd-del-tarea data-tid="${escapeHtml(t.id)}" title="Eliminar tarea"><i data-lucide="x"></i></button>
+              </li>`).join('')}</ul>` : '<div class="text-xs text-slate-400 italic">Sin tareas todavía.</div>'}
+          </div>
+
+          <div class="border-t border-slate-100 pt-3">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-sm font-semibold text-slate-700"><i data-lucide="message-square-plus"></i> Seguimientos (${acts.length})</div>
+              <button class="btn btn-primary btn-xs" data-pd-add-act><i data-lucide="plus"></i> Agregar seguimiento</button>
+            </div>
+            ${acts.length ? `<ul class="space-y-2">${acts.map(a=>{
+              const info = a.tipo ? SEGUIMIENTO_TIPOS[a.tipo] : null;
+              const tipoBadge = info ? `<span class="pill ${info.cls}"><i data-lucide="${info.icon}"></i> ${escapeHtml(info.label)}</span>` : '';
+              const aQuien = a.contactadoA ? ` <span class="text-slate-600">→ <b>${escapeHtml(a.contactadoA)}</b></span>` : '';
+              return `<li class="text-xs border-l-2 ${info?'border-'+info.color+'-300':'border-blue-300'} pl-2 py-1">
+                <div class="flex justify-between items-start gap-2 flex-wrap">
+                  <div class="flex items-center gap-1 flex-wrap">${tipoBadge}<span class="text-slate-500">${fmtDateInput(a.fecha)}</span>${aQuien}</div>
+                  <button class="text-slate-400 hover:text-red-600" data-pd-del-act data-aid="${escapeHtml(a.id)}" title="Eliminar"><i data-lucide="x"></i></button>
+                </div>
+                <div class="text-slate-700 whitespace-pre-wrap mt-0.5">${escapeHtml(a.texto||'')}</div>
+              </li>`;
+            }).join('')}</ul>` : '<div class="text-xs text-slate-400 italic">Sin seguimientos todavía. Registra uno con el botón de arriba.</div>'}
+          </div>
+
+          <div class="border-t border-slate-200 pt-3 flex justify-end gap-2 flex-wrap">
+            <button class="btn btn-secondary" data-pd-edit><i data-lucide="edit-3"></i> Editar pendiente</button>
+            ${!cerrado ? `<button class="btn btn-success" data-pd-close-pend><i data-lucide="check"></i> Cerrar pendiente</button>` : `<button class="btn btn-secondary" data-pd-reopen><i data-lucide="rotate-ccw"></i> Reabrir</button>`}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modals').insertAdjacentHTML('beforeend', html);
+
+  const reopenSelf = ()=>{
+    const m = document.getElementById(id);
+    if (m) m.remove();
+    setTimeout(()=> openPendienteDetalle(key, pid), 0);
+  };
+
+  const modal = document.getElementById(id);
+  const addT = modal.querySelector('[data-pd-add-tarea]');
+  if (addT) addT.addEventListener('click', ()=>{
+    document.getElementById(id).remove();
+    addTarea(key, pid);
+    /* addTarea abre openTextModal; al cerrar, no hay callback claro para volver al detalle.
+       Decisión: el usuario abre detalle nuevamente si quiere. */
+  });
+  const addA = modal.querySelector('[data-pd-add-act]');
+  if (addA) addA.addEventListener('click', ()=>{
+    document.getElementById(id).remove();
+    openSeguimientoForm(key, pid);
+  });
+  modal.querySelectorAll('[data-pd-toggle-tarea]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      toggleTarea(key, pid, el.dataset.tid);
+      reopenSelf();
+    });
+  });
+  modal.querySelectorAll('[data-pd-del-tarea]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      if (!confirm('¿Eliminar esta tarea?')) return;
+      deleteTarea(key, pid, el.dataset.tid);
+      reopenSelf();
+    });
+  });
+  modal.querySelectorAll('[data-pd-del-act]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      if (!confirm('¿Eliminar este seguimiento?')) return;
+      deleteActualizacion(key, pid, el.dataset.aid);
+      reopenSelf();
+    });
+  });
+  const ed = modal.querySelector('[data-pd-edit]');
+  if (ed) ed.addEventListener('click', ()=>{
+    document.getElementById(id).remove();
+    openPendienteForm(key, pid);
+  });
+  const closeP = modal.querySelector('[data-pd-close-pend]');
+  if (closeP) closeP.addEventListener('click', ()=>{
+    if (!confirm('¿Cerrar este pendiente?')) return;
+    document.getElementById(id).remove();
+    cerrarPendiente(key, pid);
+  });
+  const reop = modal.querySelector('[data-pd-reopen]');
+  if (reop) reop.addEventListener('click', ()=>{
+    togglePendiente(key, pid);
+    reopenSelf();
+  });
+
+  lucide.createIcons();
+}
+
+function cerrarPendiente(key, pid){
+  const p = findPendiente(key, pid); if (!p) return;
+  if (p.estado === 'cerrado') return;
+  p.estado = 'cerrado';
+  p.fechaCierre = todayISO();
+  savePersisted();
+  refreshActiveView();
+  toast('Pendiente cerrado', 'ok', {
+    label: 'Ver cerrados',
+    fn: ()=>{
+      pendFilters.estado = 'cerrado';
+      pendFilters.periodo = 'todos';
+      selectView('pendientes');
+    }
+  });
+}
+
+/* detenerPendiente / reanudarPendiente removidos en v5.0 (ver nota arriba). */
 function bindLogActions(){
   document.querySelectorAll('[data-log-edit]').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -1852,17 +2173,12 @@ function renderPendientes(){
   const root = document.getElementById('view-pendientes');
   root.innerHTML = `
     <div class="bg-white border-b border-slate-200 px-4 py-3 flex flex-col gap-2 flex-shrink-0">
+      <div id="p-state-tabs" class="flex flex-wrap gap-2"></div>
       <div class="flex flex-wrap gap-2 items-center">
         <div class="relative flex-1 min-w-[220px] max-w-md">
           <i data-lucide="search" class="absolute left-2 top-2.5 text-slate-400"></i>
           <input id="p-q" class="input pl-8" placeholder="Buscar por inventario, serie, equipo o descripción..." />
         </div>
-        <select id="p-estado" class="input w-auto">
-          <option value="todos">Todos los estados</option>
-          <option value="creado">Por iniciar</option>
-          <option value="abierto">Abiertos</option>
-          <option value="cerrado">Cerrados</option>
-        </select>
         <select id="p-ejecutor" class="input w-auto">
           <option value="">Todos los ejecutores</option>
           ${EJECUTORES.map(e=>`<option>${escapeHtml(e)}</option>`).join('')}
@@ -1884,7 +2200,7 @@ function renderPendientes(){
 
   const periodos = [
     { id:'todos',  label:'Todos',         icon:'list' },
-    { id:'porIniciar', label:'Por iniciar', icon:'hourglass' },
+    { id:'recontactar', label:'Por recontactar', icon:'bell' },
     { id:'vencidos', label:'Vencidos',    icon:'alert-triangle' },
     { id:'hoy',    label:'Hoy',           icon:'calendar-check' },
     { id:'semana', label:'Esta semana',   icon:'calendar-days' },
@@ -1897,7 +2213,7 @@ function renderPendientes(){
     const estadoMatch = (p)=> pendFilters.estado==='todos' ? true : p.estado===pendFilters.estado;
     const counts = {
       todos:    flatPendientes(p=>estadoMatch(p)).length,
-      porIniciar: flatPendientes(p=>p.estado==='creado').length,
+      recontactar: flatPendientes(p=>isRecordatorioVencido(p, today)).length,
       vencidos: flatPendientes(p=>isVencido(p, today)).length,
       hoy:      flatPendientes(p=>estadoMatch(p) && p.fechaCompromiso===today).length,
       semana:   flatPendientes(p=>{ if (!estadoMatch(p) || !p.fechaCompromiso) return false; return p.fechaCompromiso>=today && p.fechaCompromiso<=addDaysISO(today,7); }).length,
@@ -1918,7 +2234,7 @@ function renderPendientes(){
   function filtPeriod(p, today){
     switch(pendFilters.periodo){
       case 'todos':    return true;
-      case 'porIniciar': return p.estado==='creado';
+      case 'recontactar': return isRecordatorioVencido(p, today);
       case 'vencidos': return isVencido(p, today);
       case 'hoy':      return p.estado==='abierto' && p.fechaCompromiso===today;
       case 'semana':   return p.estado==='abierto' && p.fechaCompromiso && p.fechaCompromiso>=today && p.fechaCompromiso<=addDaysISO(today,7);
@@ -1928,7 +2244,6 @@ function renderPendientes(){
     }
   }
   function bucketKey(p, today){
-    if (p.estado === 'creado') return 'Por iniciar';
     if (!p.fechaCompromiso) return 'Sin compromiso';
     if (p.fechaCompromiso < today) return 'Vencidos';
     if (p.fechaCompromiso === today) return 'Hoy';
@@ -1937,7 +2252,7 @@ function renderPendientes(){
     if (d <= 30) return 'Este mes';
     return 'Más adelante';
   }
-  const BUCKET_ORDER = ['Por iniciar','Vencidos','Hoy','Próximos 7 días','Este mes','Más adelante','Sin compromiso'];
+  const BUCKET_ORDER = ['Vencidos','Hoy','Próximos 7 días','Este mes','Más adelante','Sin compromiso'];
 
   function update(){
     const today = todayISO();
@@ -1983,7 +2298,10 @@ function renderPendientes(){
       (groups[k] = groups[k] || []).push(p);
     });
     list.innerHTML = BUCKET_ORDER.filter(k=>groups[k]).map(k=>{
-      const color = k==='Por iniciar'?'indigo': k==='Vencidos'?'red': k==='Hoy'?'amber': (k==='Próximos 7 días'||k==='Este mes')?'blue':'gray';
+      const color = k==='Vencidos'?'red'
+                  : k==='Hoy'?'amber'
+                  : (k==='Próximos 7 días'||k==='Este mes')?'blue'
+                  : 'gray';
       return `<div>
         <div class="section-title ${color}"><i data-lucide="folder"></i> ${escapeHtml(k)} <span class="count">${groups[k].length}</span></div>
         <div class="space-y-2">${groups[k].map(pendienteCardHTML).join('')}</div>
@@ -1993,8 +2311,35 @@ function renderPendientes(){
     lucide.createIcons();
   }
 
+  function renderStateTabs(){
+    const tabsCfg = [
+      { id:'todos',    label:'Todos',      color:'slate'  },
+      { id:'abierto',  label:'En gestión', color:'amber'  },
+      { id:'cerrado',  label:'Cerrados',   color:'green'  }
+    ];
+    const counts = {
+      todos:    flatPendientes().length,
+      abierto:  flatPendientes(p=>p.estado==='abierto').length,
+      cerrado:  flatPendientes(p=>p.estado==='cerrado').length
+    };
+    const tabsEl = document.getElementById('p-state-tabs');
+    if (!tabsEl) return;
+    tabsEl.innerHTML = tabsCfg.map(t=>{
+      const active = pendFilters.estado === t.id;
+      return `<button class="chip ${active?'active':''}" data-state-tab="${t.id}" title="Filtrar por estado ${escapeHtml(t.label)}">
+        ${escapeHtml(t.label)} <span class="chip-count">${counts[t.id]||0}</span>
+      </button>`;
+    }).join('');
+    tabsEl.querySelectorAll('[data-state-tab]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        pendFilters.estado = b.dataset.stateTab;
+        renderStateTabs();
+        renderChips();
+        update();
+      });
+    });
+  }
   document.getElementById('p-q').addEventListener('input', debounce(e=>{ pendFilters.q = e.target.value; update(); }, 180));
-  document.getElementById('p-estado').addEventListener('change', e=>{ pendFilters.estado = e.target.value; renderChips(); update(); });
   document.getElementById('p-ejecutor').addEventListener('change', e=>{ pendFilters.ejecutor = e.target.value; update(); });
   document.getElementById('p-clear').addEventListener('click', ()=>{
     pendFilters.q=''; pendFilters.estado='todos'; pendFilters.ejecutor=''; pendFilters.servicio=''; pendFilters.periodo='todos'; pendFilters.mio=false;
@@ -2016,7 +2361,6 @@ function renderPendientes(){
   });
 
   document.getElementById('p-q').value = pendFilters.q;
-  document.getElementById('p-estado').value = pendFilters.estado;
   /* El select de ejecutor sólo refleja valores estándar; los marcadores especiales se muestran en el banner */
   document.getElementById('p-ejecutor').value = (pendFilters.ejecutor && pendFilters.ejecutor.indexOf('__')!==0) ? pendFilters.ejecutor : '';
   /* Banner de pre-filtro (servicio/ejecutor especial desde tabla Hoy) */
@@ -2036,6 +2380,7 @@ function renderPendientes(){
       });
     }
   }
+  renderStateTabs();
   renderChips();
   update();
   renderSyncSection();
@@ -2140,11 +2485,7 @@ function togglePendiente(key, pid){
   const arr = state.pendientes[key] || [];
   const it = arr.find(p=>p.id===pid);
   if (!it) return;
-  if (it.estado === 'abierto'){
-    it.estado = 'cerrado';
-    it.fechaCierre = todayISO();
-  } else if (it.estado === 'creado'){
-    /* Si nunca se inició, marcar cerrado directamente (caso raro: rechazar) */
+  if (it.estado === 'abierto' || it.estado === 'detenido' || it.estado === 'creado'){
     it.estado = 'cerrado';
     it.fechaCierre = todayISO();
   } else {
@@ -2154,16 +2495,98 @@ function togglePendiente(key, pid){
   savePersisted();
   refreshActiveView();
 }
-function startPendiente(key, pid){
-  const arr = state.pendientes[key] || [];
-  const it = arr.find(p=>p.id===pid);
-  if (!it || it.estado !== 'creado') return;
-  it.estado = 'abierto';
-  /* Si no tiene compromiso, sugerir +7 días por defecto (editable luego) */
-  if (!it.fechaCompromiso) it.fechaCompromiso = addDaysISO(todayISO(), 7);
+/* startPendiente / detenerPendiente / reanudarPendiente removidos en v5.0:
+   los estados "creado" y "detenido" ya no existen. Pendientes legacy en
+   esos estados se migran a "abierto" en loadPersisted. */
+
+/* Plantillas de pendientes recurrentes (hardcodeadas). Aparecen al
+   guardar un evento como acción secundaria del toast: el usuario elige
+   una y se crea un pendiente ligado al evento, asignado a él, con
+   compromiso hoy. Cubre los patrones detectados en sesiones reales. */
+const PLANTILLAS_PENDIENTE = [
+  'Pendiente de ingresar a carpeta',
+  'Pauta de monitoreo diario',
+  'Solicitar al servicio que haga la solicitud de trabajo'
+];
+
+function crearPendienteDesdeTemplate_(key, eventoId, descripcion){
+  if (!key || !descripcion) return;
+  let mio = getMiUsuario();
+  if (!mio){
+    mio = promptMiUsuario();
+    if (!mio) return;
+  }
+  const today = todayISO();
+  const eqLookup = state.equipos.find(e=>e.key===key) || {};
+  const nid = timestampUid(allPendienteIds_());
+  const p = {
+    id: nid,
+    descripcion,
+    fecha: today,
+    fechaCompromiso: today,
+    proximoRecordatorio: null,
+    fechaCierre: null,
+    ejecutor: mio,
+    estado: 'abierto',
+    tareas: [], actualizaciones: [], archivos: [],
+    inv: eqLookup.inv || '', equipo: eqLookup.equipo || '', servicio: eqLookup.servicio || ''
+  };
+  if (eventoId) p.eventoId = eventoId;
+  state.pendientes[key] = state.pendientes[key] || [];
+  state.pendientes[key].push(p);
   savePersisted();
   refreshActiveView();
-  toast('Pendiente iniciado · compromiso a 7 días', 'ok');
+  toast(`Pendiente "${descripcion}" creado`, 'ok', { label: 'Ver equipo', fn: ()=> openEquipoModal(key) });
+}
+
+function abrirSelectorPlantilla_(key, eventoId){
+  const id = 'tpl-' + uid();
+  const eqLookup = state.equipos.find(e=>e.key===key) || {};
+  const eqLbl = eqLookup.equipo ? `${escapeHtml(eqLookup.equipo)} · ${escapeHtml(eqLookup.inv||'')}` : escapeHtml(key||'');
+  const buttons = PLANTILLAS_PENDIENTE.map(d =>
+    `<button type="button" class="btn btn-secondary w-full justify-start" style="text-align:left;" data-tpl="${escapeHtml(d)}"><i data-lucide="clipboard-list"></i> ${escapeHtml(d)}</button>`
+  ).join('') +
+    `<div class="border-t border-slate-200 my-2"></div>` +
+    `<button type="button" class="btn btn-secondary w-full justify-start" style="text-align:left;" data-tpl-custom="1"><i data-lucide="edit-3"></i> Personalizado (abrir formulario)</button>`;
+  const html = `
+    <div class="modal-bg" id="${id}" onclick="if(event.target===this) document.getElementById('${id}').remove();">
+      <div class="modal modal-sm">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center gap-2">
+          <i data-lucide="clipboard-list" class="text-indigo-600"></i>
+          <div class="font-semibold flex-1">Crear pendiente desde plantilla</div>
+          <button class="btn btn-secondary" onclick="document.getElementById('${id}').remove();"><i data-lucide="x"></i></button>
+        </div>
+        <div class="p-5 space-y-2">
+          <div class="text-xs text-slate-500 mb-1">Equipo: <b>${eqLbl}</b></div>
+          <div class="text-xs text-slate-500 mb-2">Asignado a <b>${escapeHtml(getMiUsuario() || '(definir nombre primero)')}</b> · Compromiso hoy · Ligado al evento</div>
+          <div class="flex flex-col gap-2">${buttons}</div>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modals').insertAdjacentHTML('beforeend', html);
+  document.querySelectorAll(`#${id} [data-tpl]`).forEach(btn => {
+    btn.addEventListener('click', () => {
+      const desc = btn.dataset.tpl;
+      document.getElementById(id).remove();
+      crearPendienteDesdeTemplate_(key, eventoId, desc);
+    });
+  });
+  document.querySelectorAll(`#${id} [data-tpl-custom]`).forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById(id).remove();
+      openPendienteForm(key, null, eventoId);
+    });
+  });
+  lucide.createIcons();
+}
+
+/* Plantilla rápida ligada a un evento recién guardado: crea un pendiente
+   "Pendiente de ingresar a carpeta" en el equipo del evento, asignado al
+   usuario actual con compromiso hoy y eventoId ligado. Se ofrece como
+   botón secundario en el toast tras saveEvento — atiende al patrón de
+   "guardé evento → pendiente de archivo en carpeta" registrado en sesión. */
+function crearPendienteCarpetaParaEvento_(key, eventoId){
+  crearPendienteDesdeTemplate_(key, eventoId, 'Pendiente de ingresar a carpeta');
 }
 
 /* Plantilla rápida: crea una actividad general "Archivar" asignada
@@ -2191,7 +2614,21 @@ function crearArchivarRapido_(){
     inv: '', equipo: '', servicio: ''
   });
   savePersisted();
-  refreshActiveView();
+  /* Filtrar la lista a los "Archivar" para que el usuario vea el recién
+     creado en pantalla. El comentario v4.10 "no hace nada el botón
+     archivar" se debía a que el toast desaparecía y el nuevo pendiente
+     quedaba mezclado entre decenas. */
+  pendFilters.q = 'Archivar';
+  pendFilters.estado = 'todos';
+  pendFilters.periodo = 'todos';
+  pendFilters.servicio = '';
+  pendFilters.ejecutor = '';
+  pendFilters.mio = false;
+  if (document.querySelector('.sidebar-btn.active')?.dataset.view !== 'pendientes'){
+    selectView('pendientes');
+  } else {
+    renderPendientes();
+  }
   toast(`Pendiente "Archivar" creado para ${mio}`, 'ok');
 }
 
@@ -2213,6 +2650,9 @@ function refreshActiveView(){
    VISTA: VERIFICACIÓN
    ============================================================ */
 function renderVerificacion(){
+  /* v5.0: vista removida del sidebar. La función queda por compat con
+     navegación legacy pero retorna temprano si su contenedor ya no existe. */
+  if (!document.getElementById('view-verificacion')) return;
   const v = state.verif; if (!v) return;
   const resCounts = {};
   state.equipos.forEach(eq=>{
@@ -2564,7 +3004,7 @@ function renderEquipoModal(){
                     <input type="checkbox" ${p.estado==='cerrado'?'checked':''} data-pend-toggle data-key="${escapeHtml(e.key)}" data-pid="${escapeHtml(p.id)}" class="mt-1" />
                     <div class="flex-1">
                       <div class="text-sm ${p.estado==='cerrado'?'line-through text-slate-500':''}">${escapeHtml(p.descripcion)}</div>
-                      <div class="text-xs text-slate-500">Creado ${fmtDateInput(p.fecha)} · Compromiso ${p.fechaCompromiso?fmtDateInput(p.fechaCompromiso):'—'} · Ejecutor ${escapeHtml(p.ejecutor||'—')} ${p.estado==='cerrado'&&p.fechaCierre?'· <span class="text-slate-600">Cerrado '+fmtDateInput(p.fechaCierre)+'</span>':''} ${venc?'· <span class="text-red-600 font-medium">Vencido</span>':''}</div>
+                      <div class="text-xs text-slate-500">Creado ${fmtDateInput(p.fecha)} · Compromiso ${p.fechaCompromiso?fmtDateInput(p.fechaCompromiso):'—'} · Ejecutor ${escapeHtml(p.ejecutor||'—')} ${p.estado==='cerrado'&&p.fechaCierre?'· <span class="text-slate-600">Cerrado '+fmtDateInput(p.fechaCierre)+'</span>':''} ${p.estado==='detenido'?'· <span class="text-slate-700 font-medium">Detenido</span>':''} ${p.estado==='abierto'&&venc?'· <span class="text-red-600 font-medium">Vencido</span>':''}</div>
                       ${(p.archivos&&p.archivos.length)?`<div class="mt-1 flex flex-wrap gap-1">${p.archivos.map(f=>`<a href="${escapeHtml(f.url||'#')}" target="_blank" rel="noopener" class="pill bg-slate-100 text-slate-700 hover:bg-slate-200" title="${escapeHtml(f.nombre)} (${fmtBytes_(f.size)})"><i data-lucide="${fileIconFor_(f.mime, f.nombre)}"></i> ${escapeHtml(f.nombre.length>30?f.nombre.slice(0,30)+'…':f.nombre)}</a>`).join('')}</div>`:''}
                     </div>
                     <div class="flex gap-1">
@@ -2633,7 +3073,7 @@ function renderEquipoModal(){
   root.querySelectorAll('[data-del-act]').forEach(el=> el.addEventListener('click', ()=> deleteActualizacion(el.dataset.key, el.dataset.pid, el.dataset.aid)));
   root.querySelectorAll('[data-new-ev]').forEach(el=> el.addEventListener('click', (ev)=>{ ev.preventDefault(); openEventoForm(el.dataset.key); }));
   root.querySelectorAll('[data-new-pend]').forEach(el=> el.addEventListener('click', (ev)=>{ ev.preventDefault(); openPendienteForm(el.dataset.key); }));
-  root.querySelectorAll('[data-new-pend-from-ev]').forEach(el=> el.addEventListener('click', (ev)=>{ ev.preventDefault(); openPendienteForm(el.dataset.key, null, el.dataset.id); }));
+  root.querySelectorAll('[data-new-pend-from-ev]').forEach(el=> el.addEventListener('click', (ev)=>{ ev.preventDefault(); abrirSelectorPlantilla_(el.dataset.key, el.dataset.id); }));
   root.querySelectorAll('[data-open-historial]').forEach(el=> el.addEventListener('click', (ev)=>{ ev.preventDefault(); openHistorial(el.dataset.key, true); }));
   root.querySelectorAll('[data-timeline-ev]').forEach(el=> el.addEventListener('click', ()=>{
     const id = el.dataset.timelineEv;
@@ -2661,7 +3101,7 @@ function addTarea(key, pid){
   openTextModal('Nueva tarea','Descripción de la tarea', '', (desc)=>{
     const p = findPendiente(key, pid); if (!p) return;
     p.tareas = p.tareas || [];
-    p.tareas.push({ id: uid(), descripcion: desc.trim(), estado: 'abierto', fecha: todayISO() });
+    p.tareas.push({ id: timestampUid(allTareaIds_()), descripcion: desc.trim(), estado: 'abierto', fecha: todayISO() });
     savePersisted();
     refreshActiveView();
   });
@@ -2841,15 +3281,10 @@ function openEventoForm(key, editId){
           <div>
             <label class="text-xs text-slate-600 font-medium">Tipo de evento</label>
             <select id="evt-tipo" class="input" onchange="renderEventoFields()" ${editing?'disabled':''}>
-              <option value="mp">Mantención preventiva</option>
-              <option value="reporte_servicio">Reporte de servicio</option>
-              <option value="visita_tecnica">Visita técnica</option>
-              <option value="cotizacion">Cotización</option>
-              <option value="oc">Orden de Compra</option>
-              <option value="envio">Envío a servicio técnico</option>
-              <option value="solicitud">Solicitud de trabajo</option>
-              <option value="recepcion">Recepción</option>
-              <option value="reparacion">Reparación</option>
+              ${(editing && !TIPOS_EVENTO_NUEVO_REGISTRO.includes(editing.tipo))
+                ? `<option value="${escapeHtml(editing.tipo)}" selected>${escapeHtml(TIPOS_EVENTO[editing.tipo]?.label || editing.tipo)} (legacy)</option>`
+                : ''}
+              ${TIPOS_EVENTO_NUEVO_REGISTRO.map(k=>`<option value="${k}">${escapeHtml(TIPOS_EVENTO[k].label)}</option>`).join('')}
             </select>
           </div>
           <div id="evt-fields" class="space-y-3"></div>
@@ -2881,7 +3316,7 @@ function renderEventoFields(prefill){
   const tipo = document.getElementById('evt-tipo').value;
   const today = todayISO();
   const opt = (val, label, sel)=>`<option value="${escapeHtml(val)}" ${sel===val?'selected':''}>${escapeHtml(label)}</option>`;
-  const ejecOpts = (cur)=> `<option value="">— seleccionar —</option>${EJECUTORES.map(e=>opt(e,e,cur)).join('')}`;
+  const ejecInput = (cur, required)=>`<input list="ejecutores-dl" id="ev-ejecutor" class="input" value="${escapeHtml(cur||'')}" placeholder="— seleccionar o escribir —" ${required?'required':''} autocomplete="off">`;
   const estadoOpts = (cur)=> `${opt('operativo','Operativo',cur)}${opt('no operativo','No operativo',cur)}`;
   const resOpts = (cur)=> `<option value="">— seleccionar —</option>${RESULTADOS.map(r=>opt(r,r+(CAUSAS[r]?' — '+CAUSAS[r]:''),cur)).join('')}`;
   const get = (k, dflt='')=> prefill && prefill[k] != null ? prefill[k] : dflt;
@@ -2891,7 +3326,7 @@ function renderEventoFields(prefill){
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-xs font-medium text-slate-600">Fecha</label><input type="date" id="ev-fecha" class="input" value="${escapeHtml(get('fecha', today))}" required>${dateShortcuts('ev-fecha')}</div>
         <div><label class="text-xs font-medium text-slate-600">Resultado</label><select id="ev-resultado" class="input" required>${resOpts(get('resultado'))}</select></div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label><select id="ev-ejecutor" class="input" required>${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label>${ejecInput(get('ejecutor'), true)}</div>
         <div><label class="text-xs font-medium text-slate-600">Estado del equipo</label>
           <select id="ev-estado" class="input" required>
             <option value="" ${!get('estado')?'selected':''}>— seleccionar —</option>
@@ -2903,7 +3338,6 @@ function renderEventoFields(prefill){
       <div>
         <div class="flex items-center gap-2 mb-1">
           <label class="text-xs font-medium text-slate-600">Observación</label>
-          <button type="button" class="btn btn-secondary btn-xs ml-auto" onclick="_analizarObsClick(this)" title="Clasificar oraciones en Observaciones / Recomendaciones / Pendientes"><i data-lucide="sparkles"></i> Analizar</button>
         </div>
         <textarea id="ev-obs" class="input" rows="2">${escapeHtml(get('observacion'))}</textarea>
       </div>`;
@@ -2911,7 +3345,7 @@ function renderEventoFields(prefill){
     html = `
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-xs font-medium text-slate-600">Fecha</label><input type="date" id="ev-fecha" class="input" value="${escapeHtml(get('fecha', today))}" required>${dateShortcuts('ev-fecha')}</div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label><select id="ev-ejecutor" class="input" required>${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label>${ejecInput(get('ejecutor'), true)}</div>
         <div class="col-span-2"><label class="text-xs font-medium text-slate-600">Estado del equipo</label>
           <select id="ev-estado" class="input" required>
             <option value="" ${!get('estado')?'selected':''}>— seleccionar —</option>
@@ -2924,7 +3358,6 @@ function renderEventoFields(prefill){
         <div class="flex items-center gap-2 mb-1">
           <label class="text-xs font-medium text-slate-600">Descripción</label>
           <span class="text-xs text-slate-400">Pega el informe completo. Al guardar, las oraciones tipo Pendiente se convertirán en pendientes "Por iniciar".</span>
-          <button type="button" class="btn btn-secondary btn-xs ml-auto" onclick="_analizarObsClick(this)" title="Previsualizar clasificación"><i data-lucide="sparkles"></i> Analizar</button>
         </div>
         <textarea id="ev-obs" class="input" rows="6" placeholder="Describe lo realizado, hallazgos, recomendaciones y pendientes…">${escapeHtml(get('observacion'))}</textarea>
       </div>`;
@@ -2937,7 +3370,7 @@ function renderEventoFields(prefill){
         <div><label class="text-xs font-medium text-slate-600">Fecha envío</label><input type="date" id="ev-fecha" class="input" value="${escapeHtml(get('fecha', today))}" required>${dateShortcuts('ev-fecha')}</div>
         <div><label class="text-xs font-medium text-slate-600">N° envío</label><input type="text" id="ev-nenvio" class="input" value="${escapeHtml(get('nEnvio'))}"></div>
         <div><label class="text-xs font-medium text-slate-600">Empresa</label><input type="text" id="ev-empresa" class="input" value="${escapeHtml(get('empresa'))}"></div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label><select id="ev-ejecutor" class="input">${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label>${ejecInput(get('ejecutor'), false)}</div>
         <div class="col-span-2"><label class="text-xs font-medium text-slate-600">Folio solicitud</label><input type="text" id="ev-folio" class="input" value="${escapeHtml(get('folio'))}"></div>
       </div>
       <div><label class="text-xs font-medium text-slate-600">Comentario</label><textarea id="ev-com" class="input" rows="2">${escapeHtml(get('comentario'))}</textarea></div>`;
@@ -2945,7 +3378,7 @@ function renderEventoFields(prefill){
     html = `
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-xs font-medium text-slate-600">Fecha solicitud</label><input type="date" id="ev-fecha" class="input" value="${escapeHtml(get('fecha', today))}" required>${dateShortcuts('ev-fecha')}</div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor asignado</label><select id="ev-ejecutor" class="input">${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor asignado</label>${ejecInput(get('ejecutor'), false)}</div>
         <div><label class="text-xs font-medium text-slate-600">Folio solicitud</label><input type="text" id="ev-folio" class="input" value="${escapeHtml(get('folio'))}"></div>
         <div><label class="text-xs font-medium text-slate-600">Estado</label><input type="text" id="ev-estado" class="input" value="${escapeHtml(get('estado','no operativo'))}" readonly></div>
       </div>
@@ -2985,7 +3418,7 @@ function renderEventoFields(prefill){
             <button type="button" class="btn btn-secondary btn-xs" onclick="openEmpresaForm(null, true)" title="Nueva empresa"><i data-lucide="plus"></i></button>
           </div>
         </div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label><select id="ev-ejecutor" class="input" required>${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label>${ejecInput(get('ejecutor'), true)}</div>
         <div class="col-span-2"><label class="text-xs font-medium text-slate-600">Estado del equipo <span class="text-slate-400">(opcional)</span></label>
           <select id="ev-estado" class="input">
             <option value="" ${!get('estado')?'selected':''}>— sin cambio —</option>
@@ -2997,7 +3430,6 @@ function renderEventoFields(prefill){
       <div>
         <div class="flex items-center gap-2 mb-1">
           <label class="text-xs font-medium text-slate-600">Observación</label>
-          <button type="button" class="btn btn-secondary btn-xs ml-auto" onclick="_analizarObsClick(this)" title="Clasificar oraciones en Observaciones / Recomendaciones / Pendientes"><i data-lucide="sparkles"></i> Analizar</button>
         </div>
         <textarea id="ev-obs" class="input" rows="2" placeholder="${isCot?'Detalles de la cotización...':'Detalles de la OC, items incluidos...'}">${escapeHtml(get('observacion'))}</textarea>
       </div>`;
@@ -3027,7 +3459,7 @@ function renderEventoFields(prefill){
           </div>
           ${curEmp ? '' : '<div class="text-xs text-slate-400 mt-1">Elija primero una empresa.</div>'}
         </div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor responsable</label><select id="ev-ejecutor" class="input" required>${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor responsable</label>${ejecInput(get('ejecutor'), true)}</div>
         <div><label class="text-xs font-medium text-slate-600">Estado del equipo</label>
           <select id="ev-estado" class="input" required>
             <option value="" ${!get('estado')?'selected':''}>— seleccionar —</option>
@@ -3039,7 +3471,6 @@ function renderEventoFields(prefill){
       <div>
         <div class="flex items-center gap-2 mb-1">
           <label class="text-xs font-medium text-slate-600">Observación</label>
-          <button type="button" class="btn btn-secondary btn-xs ml-auto" onclick="_analizarObsClick(this)" title="Clasificar oraciones en Observaciones / Recomendaciones / Pendientes"><i data-lucide="sparkles"></i> Analizar</button>
         </div>
         <textarea id="ev-obs" class="input" rows="2" placeholder="Detalles de la visita, hallazgos, recomendaciones...">${escapeHtml(get('observacion'))}</textarea>
       </div>`;
@@ -3170,6 +3601,12 @@ function saveEvento(key, editId, andNext){
   savePersisted();
   closeForm();
   const verRegistroAction = { label: 'Ver registro', fn: ()=> openEquipoModal(key) };
+  /* Selector de plantillas recurrentes ligadas al evento recién guardado.
+     Sólo en eventos nuevos (no edición) y excluyendo bucket 'general'. */
+  const plantillaAction = (!editId && key !== 'general')
+    ? { label: '+ Plantilla', fn: ()=> abrirSelectorPlantilla_(key, target.id) }
+    : null;
+  const toastActions = plantillaAction ? [verRegistroAction, plantillaAction] : verRegistroAction;
   let msg;
   if (target.tipo === 'mp' && target.fecha && target.resultado){
     const mes = MONTHS_FULL[parseInt(target.fecha.slice(5,7),10)-1] || '';
@@ -3200,9 +3637,9 @@ function saveEvento(key, editId, andNext){
       }
     }, 60);
     updateSidebarBadges();
-    toast(msg + ' · listo para el siguiente equipo', 'ok', verRegistroAction);
+    toast(msg + ' · listo para el siguiente equipo', 'ok', toastActions);
   } else {
-    toast(msg, 'ok', verRegistroAction);
+    toast(msg, 'ok', toastActions);
     refreshEquipoModalIfOpen(key);
   }
 }
@@ -3240,12 +3677,18 @@ function openPendienteForm(key, editId, eventoId){
             <div><label class="text-xs font-medium text-slate-600">Fecha creación</label><input type="date" id="p-fecha" class="input" value="${escapeHtml(editing?editing.fecha:today)}" required>${dateShortcuts('p-fecha','fwd')}</div>
             <div><label class="text-xs font-medium text-slate-600">Fecha compromiso</label><input type="date" id="p-comp" class="input" value="${escapeHtml(editing&&editing.fechaCompromiso?editing.fechaCompromiso:'')}">${dateShortcuts('p-comp','fwd')}</div>
             <div class="col-span-2"><label class="text-xs font-medium text-slate-600">Ejecutor (a quién delegas)</label>
-              <select id="p-ejec" class="input"><option value="">— sin asignar —</option>${EJECUTORES.map(e=>`<option ${editing&&editing.ejecutor===e?'selected':''}>${escapeHtml(e)}</option>`).join('')}</select>
+              <input list="ejecutores-dl" id="p-ejec" class="input" value="${escapeHtml(editing&&editing.ejecutor?editing.ejecutor:'')}" placeholder="— sin asignar / escribir nombre —" autocomplete="off">
             </div>
             <div class="col-span-2"><label class="text-xs font-medium text-slate-600">Próximo recordatorio <span class="text-slate-400">(opcional — cuándo te aviso de recontactar)</span></label>
               <input type="date" id="p-rec" class="input" value="${escapeHtml(editing&&editing.proximoRecordatorio?editing.proximoRecordatorio:'')}">${dateShortcuts('p-rec','fwd')}
             </div>
           </div>
+          ${editing ? `<div><label class="text-xs font-medium text-slate-600">Estado del pendiente</label>
+            <select id="p-estado-form" class="input">
+              <option value="abierto" ${editing.estado!=='cerrado'?'selected':''}>En gestión</option>
+              <option value="cerrado" ${editing.estado==='cerrado'?'selected':''}>Cerrado</option>
+            </select>
+          </div>` : ''}
           ${renderArchivosSection_('pend-form', editing?.archivos || [])}
           <div class="flex justify-end gap-2 pt-2 border-t">
             <button type="button" class="btn btn-secondary" onclick="closeForm()">Cancelar</button>
@@ -3295,6 +3738,17 @@ function savePendiente(key, editId){
     p.equipo   = p.equipo   || eqLookup.equipo   || '';
     p.servicio = p.servicio || eqLookup.servicio || '';
     /* eventoId no se sobrescribe en edición (preservar el vínculo existente) */
+    /* Estado: si el form lo incluye y cambió, aplicarlo y ajustar fechaCierre. */
+    const estadoEl = document.getElementById('p-estado-form');
+    if (estadoEl && estadoEl.value && estadoEl.value !== p.estado){
+      const newEstado = estadoEl.value;
+      p.estado = newEstado;
+      if (newEstado === 'cerrado'){
+        if (!p.fechaCierre) p.fechaCierre = todayISO();
+      } else {
+        delete p.fechaCierre;
+      }
+    }
   } else {
     const p = {
       id: preId || timestampUid(allPendienteIds_()), descripcion: desc, fecha, fechaCompromiso: comp, ejecutor: ejec,
@@ -3604,53 +4058,11 @@ function classifyObservacion(text){
    - C2, C3, C4: sin fecha definida (depende del reintegro del
      equipo al servicio); se crea pendiente sin fechaCompromiso.
    ============================================================ */
-const CAUSAS_REPROG_30D = new Set(['C1','C5','C6','C7','C8']);
-const CAUSAS_REPROG_INDEFINIDA = new Set(['C2','C3','C4']);
-
-function _ultimoDiaMesSiguiente_(fechaISO){
-  if (!fechaISO || typeof fechaISO !== 'string') return null;
-  const d = new Date(fechaISO + 'T00:00:00');
-  if (isNaN(d.getTime())) return null;
-  /* Día 0 del mes (mes+2) = último día del mes siguiente */
-  const next = new Date(d.getFullYear(), d.getMonth()+2, 0);
-  const y = next.getFullYear();
-  const m = String(next.getMonth()+1).padStart(2,'0');
-  const dd = String(next.getDate()).padStart(2,'0');
-  return `${y}-${m}-${dd}`;
-}
-
-/* Crea un pendiente "creado" (Por iniciar) por reprogramación si el
-   resultado del MP es una causal C1-C8. Devuelve 1 si creó, 0 si no
-   aplica o si ya existe el mismo pendiente. */
-function _autoReprogramarMP_(key, ev){
-  if (!ev || ev.tipo !== 'mp' || !ev.resultado) return 0;
-  const cod = String(ev.resultado).toUpperCase();
-  const is30d = CAUSAS_REPROG_30D.has(cod);
-  const isIndef = CAUSAS_REPROG_INDEFINIDA.has(cod);
-  if (!is30d && !isIndef) return 0;
-  const causalDesc = CAUSAS[cod] || cod;
-  const desc = is30d
-    ? `Reprogramar MP por causal ${cod} — ${causalDesc}. Reprogramación dentro del mes siguiente (norma PMP).`
-    : `Reprogramar MP por causal ${cod} — ${causalDesc}. Sin fecha definida, depende del reintegro del equipo al servicio.`;
-  /* Anti-duplicado: misma descripción + eventoId ya creado */
-  const existing = (state.pendientes[key]||[]).some(p =>
-    p.eventoId === ev.id && String(p.descripcion||'').trim() === desc);
-  if (existing) return 0;
-  const today = todayISO();
-  const eqLookup = state.equipos.find(e=>e.key===key) || {};
-  const fechaCompromiso = is30d ? _ultimoDiaMesSiguiente_(ev.fecha) : null;
-  const nid = timestampUid(allPendienteIds_());
-  state.pendientes[key] = state.pendientes[key] || [];
-  state.pendientes[key].push({
-    id: nid, descripcion: desc,
-    fecha: today, fechaCompromiso, ejecutor: ev.ejecutor || null,
-    proximoRecordatorio: null, estado: 'creado',
-    tareas: [], actualizaciones: [], archivos: [],
-    inv: eqLookup.inv || '', equipo: eqLookup.equipo || '', servicio: eqLookup.servicio || '',
-    eventoId: ev.id
-  });
-  return 1;
-}
+/* v5.0: auto-reprogramación PMP removida por decisión del usuario.
+   La función se conserva como no-op para no romper llamadas legacy
+   (loadPersisted, saveEvento). Pendientes de reprogramación que ya
+   existían se preservan, pero ningún MP nuevo genera reprog automática. */
+function _autoReprogramarMP_(){ return 0; }
 
 function _spawnPendientesCreadosDesdeTexto_(key, texto, eventoId){  if (!texto) return 0;
   const sentences = new Set();
@@ -4100,54 +4512,40 @@ function detectTypos_(text){
   return issues;
 }
 function countContactosForServ(srv){
+  /* v5.0: sólo cuenta supervisor y encargado (CR removido). */
   const data = state.agenda.servicios[srv] || {};
   let fijos = 0;
   if (isContactoFilled(data.supervisor)) fijos++;
   if (isContactoFilled(data.encargado))  fijos++;
-  const cr = findCRForServicio(srv);
-  if (cr && isContactoFilled(cr.jefe))   fijos++;
   const otros = (data.otros||[]).filter(o=>isContactoFilled(o)).length;
   return { fijos, otros, total: fijos + otros };
 }
 
 function renderAgenda(){
+  /* v5.0: Agenda reducida a Servicios clínicos. Las tabs Centros de
+     Responsabilidad, Empresas y Directorio se removieron por no uso.
+     Los datos existentes en esas categorías se preservan en localStorage
+     y en el JSON exportado por si querés volver a verlos. */
+  agendaUI.tab = 'servicios';
   const root = document.getElementById('view-agenda');
   const servicios = uniqueValues('servicio');
-  const dirCount = (state.agenda.directorio||[]).length;
-  const empCount = (state.agenda.empresas||[]).length;
-  const placeholder = agendaUI.tab==='directorio' ? 'Buscar en directorio...'
-    : agendaUI.tab==='empresas' ? 'Buscar empresas o técnicos...'
-    : 'Buscar servicios o contactos...';
-  const headerAction = agendaUI.tab==='centros'
-      ? '<button class="btn btn-primary" id="ag-new-cr"><i data-lucide="plus"></i> Nuevo Centro de Responsabilidad</button>'
-    : agendaUI.tab==='directorio'
-      ? '<button class="btn btn-primary" id="ag-new-dir"><i data-lucide="plus"></i> Nuevo contacto</button>'
-    : agendaUI.tab==='empresas'
-      ? '<button class="btn btn-primary" id="ag-new-emp"><i data-lucide="plus"></i> Nueva empresa</button>'
-      : '';
   root.innerHTML = `
     <div class="bg-white border-b border-slate-200 px-4 py-3 flex flex-wrap gap-2 items-center flex-shrink-0">
-      <div class="flex gap-1 flex-wrap">
-        <button class="chip ${agendaUI.tab==='servicios'?'active':''}" data-agenda-tab="servicios"><i data-lucide="hospital"></i> Servicios clínicos <span class="chip-count">${servicios.length}</span></button>
-        <button class="chip ${agendaUI.tab==='centros'?'active':''}" data-agenda-tab="centros"><i data-lucide="building-2"></i> Centros de Responsabilidad <span class="chip-count">${state.agenda.centros.length}</span></button>
-        <button class="chip ${agendaUI.tab==='empresas'?'active':''}" data-agenda-tab="empresas"><i data-lucide="briefcase"></i> Empresas <span class="chip-count">${empCount}</span></button>
-        <button class="chip ${agendaUI.tab==='directorio'?'active':''}" data-agenda-tab="directorio"><i data-lucide="contact"></i> Directorio <span class="chip-count">${dirCount}</span></button>
+      <div class="flex items-center gap-2">
+        <i data-lucide="hospital" class="text-slate-500"></i>
+        <span class="text-sm font-semibold text-slate-800">Servicios clínicos</span>
+        <span class="pill bg-slate-100 text-slate-700">${servicios.length}</span>
       </div>
       <div class="relative flex-1 min-w-[220px] max-w-md">
         <i data-lucide="search" class="absolute left-2 top-2.5 text-slate-400"></i>
-        <input id="ag-q" class="input pl-8" placeholder="${placeholder}" value="${escapeHtml(agendaUI.q)}" />
+        <input id="ag-q" class="input pl-8" placeholder="Buscar servicios o contactos..." value="${escapeHtml(agendaUI.q)}" />
       </div>
-      ${headerAction}
     </div>
     <div id="ag-body" class="p-4 max-w-6xl mx-auto w-full"></div>`;
-  document.querySelectorAll('[data-agenda-tab]').forEach(b=> b.addEventListener('click', ()=>{ agendaUI.tab = b.dataset.agendaTab; renderAgenda(); }));
   const inp = document.getElementById('ag-q');
   if (inp){
     inp.addEventListener('input', debounce(()=>{ agendaUI.q = inp.value; renderAgendaBody(); }, 180));
   }
-  const nb  = document.getElementById('ag-new-cr');  if (nb)  nb.addEventListener('click', ()=> openCRForm(null));
-  const nd  = document.getElementById('ag-new-dir'); if (nd)  nd.addEventListener('click', ()=> openDirectorioForm(null));
-  const ne  = document.getElementById('ag-new-emp'); if (ne)  ne.addEventListener('click', ()=> openEmpresaForm(null));
   renderAgendaBody();
   lucide.createIcons();
 }
@@ -4227,15 +4625,15 @@ function renderEventoTimeline_(e){
 }
 
 function contactosServicioBlockHTML(e){
-  /* Bloque colapsable de contactos del servicio dentro del modal del equipo */
+  /* Bloque colapsable de contactos del servicio dentro del modal del equipo.
+     v5.0: removida la card del "Jefe del CR" (Centros de Responsabilidad
+     ya no se gestionan desde la Agenda). */
   const srv = e && e.servicio;
   if (!srv) return '';
   const data = state.agenda.servicios[srv] || { supervisor:null, encargado:null };
-  const cr = findCRForServicio(srv);
   const items = [
-    { cargo:'supervisor', scope:'servicio', key:srv,     contacto:data.supervisor },
-    { cargo:'encargado',  scope:'servicio', key:srv,     contacto:data.encargado  },
-    { cargo:'jefe',       scope:'cr',       key:cr?cr.id:'',   contacto:cr?cr.jefe:null, crNombre:cr?cr.nombre:null }
+    { cargo:'supervisor', scope:'servicio', key:srv, contacto:data.supervisor },
+    { cargo:'encargado',  scope:'servicio', key:srv, contacto:data.encargado  }
   ];
   const filledCount = items.filter(it=> it.contacto && (it.contacto.nombre||it.contacto.email||it.contacto.anexo||it.contacto.celular)).length;
   const compactCard = (it)=>{
@@ -4287,10 +4685,10 @@ function contactosServicioBlockHTML(e){
     <summary class="px-3 py-2 font-medium text-sm flex items-center gap-2 bg-slate-50 rounded-t">
       <i data-lucide="chevron-right" class="chev"></i>
       <i data-lucide="users"></i> Contactos del servicio
-      <span class="text-xs text-slate-500">(${filledCount}/3 fijos${otros.length?` + ${otros.length} otros`:''})</span>
+      <span class="text-xs text-slate-500">(${filledCount}/2 fijos${otros.length?` + ${otros.length} otros`:''})</span>
     </summary>
     <div class="p-3">
-      <div class="grid md:grid-cols-3 gap-2">
+      <div class="grid md:grid-cols-2 gap-2">
         ${items.map(compactCard).join('')}
       </div>
       ${otrosHtml}
@@ -4302,78 +4700,50 @@ function renderAgendaServicios(servicios, q){
   if (!servicios.length){
     return '<div class="text-center text-slate-500 text-sm py-12">Cargue el archivo maestro para ver los servicios clínicos.</div>';
   }
-  /* Conteos para chips de estado */
+  /* Conteos para chips de estado (v5.0: 2 fijos máx — supervisor y encargado) */
   const counts = { todos: servicios.length, completos: 0, incompletos: 0, sin: 0 };
   servicios.forEach(srv=>{
     const f = countContactosForServ(srv).fijos;
     if (f === 0) counts.sin++;
-    else if (f === 3) counts.completos++;
+    else if (f === 2) counts.completos++;
     else counts.incompletos++;
   });
-  /* Conteos por CR */
-  const sinCRList = servicios.filter(srv => !findCRForServicio(srv));
-  const crChips = state.agenda.centros.map(cr=>({
-    id: cr.id, nombre: cr.nombre,
-    count: servicios.filter(srv => (cr.servicios||[]).includes(srv)).length
-  }));
 
   /* Filtrar */
   const filtered = servicios.filter(srv=>{
     const c = state.agenda.servicios[srv] || { supervisor:null, encargado:null, otros:[] };
-    const cr = findCRForServicio(srv);
     const f = countContactosForServ(srv).fijos;
-    if (agendaUI.estado === 'completos'  && f !== 3) return false;
-    if (agendaUI.estado === 'incompletos' && (f === 0 || f === 3)) return false;
+    if (agendaUI.estado === 'completos'  && f !== 2) return false;
+    if (agendaUI.estado === 'incompletos' && (f === 0 || f === 2)) return false;
     if (agendaUI.estado === 'sin'        && f !== 0) return false;
-    if (agendaUI.crId){
-      if (agendaUI.crId === '__nocr__'){ if (cr) return false; }
-      else { if (!cr || cr.id !== agendaUI.crId) return false; }
-    }
     if (q){
       const otrosTxt = (c.otros||[]).map(o=>`${o.rol||''} ${o.nombre||''} ${o.email||''}`).join(' ');
-      const hay = [srv, c.supervisor?.nombre, c.supervisor?.email, c.encargado?.nombre, c.encargado?.email,
-                   cr?.nombre, cr?.jefe?.nombre, cr?.jefe?.email, otrosTxt]
+      const hay = [srv, c.supervisor?.nombre, c.supervisor?.email, c.encargado?.nombre, c.encargado?.email, otrosTxt]
         .map(x=>(x==null?'':String(x).toLowerCase())).join(' | ');
       if (!hay.includes(q)) return false;
     }
     return true;
   });
 
-  const chipsEstado = `<div class="flex flex-wrap gap-2 mb-2">
+  const chipsEstado = `<div class="flex flex-wrap gap-2 mb-3">
     <button class="chip ${agendaUI.estado==='todos'?'active':''}" data-ag-estado="todos">Todos <span class="chip-count">${counts.todos}</span></button>
     <button class="chip ${agendaUI.estado==='completos'?'active':''}" data-ag-estado="completos"><i data-lucide="check-circle-2"></i> Completos <span class="chip-count">${counts.completos}</span></button>
     <button class="chip ${agendaUI.estado==='incompletos'?'active':''}" data-ag-estado="incompletos"><i data-lucide="alert-circle"></i> Incompletos <span class="chip-count">${counts.incompletos}</span></button>
     <button class="chip ${agendaUI.estado==='sin'?'active':''}" data-ag-estado="sin"><i data-lucide="circle-off"></i> Sin contactos <span class="chip-count">${counts.sin}</span></button>
   </div>`;
-  const chipsCR = state.agenda.centros.length ? `<div class="flex flex-wrap gap-2 mb-3">
-    <button class="chip ${!agendaUI.crId?'active':''}" data-ag-cr=""><i data-lucide="filter"></i> Todos los CR</button>
-    ${crChips.map(c=>`<button class="chip ${agendaUI.crId===c.id?'active':''}" data-ag-cr="${escapeHtml(c.id)}"><i data-lucide="building-2"></i> ${escapeHtml(c.nombre)} <span class="chip-count">${c.count}</span></button>`).join('')}
-    <button class="chip ${agendaUI.crId==='__nocr__'?'active':''}" data-ag-cr="__nocr__">Sin CR <span class="chip-count">${sinCRList.length}</span></button>
-  </div>` : '';
   const cards = filtered.map(srv => renderServicioCard_(srv)).join('') || '<div class="text-center text-slate-500 text-sm py-8">Sin servicios que coincidan con los filtros.</div>';
   const totalLbl = filtered.length === servicios.length ? '' : `<div class="text-xs text-slate-500 mb-2">Mostrando ${filtered.length} de ${servicios.length} servicios.</div>`;
-  return chipsEstado + chipsCR + totalLbl + `<div class="space-y-3">${cards}</div>`;
+  return chipsEstado + totalLbl + `<div class="space-y-3">${cards}</div>`;
 }
 
 function renderServicioCard_(srv){
+  /* v5.0: removida la card del Jefe del CR y el pill de asociación a CR.
+     La Agenda sólo gestiona contactos de servicio (supervisor, encargado
+     y otros). */
   const c = state.agenda.servicios[srv] || { supervisor:null, encargado:null, otros:[] };
-  const cr = findCRForServicio(srv);
   const otros = (c.otros||[]).filter(Boolean);
   const counts = countContactosForServ(srv);
   const badgeCount = `<span class="pill bg-slate-100 text-slate-700" title="Contactos registrados">${counts.total}</span>`;
-  const crLbl = cr
-    ? `<span class="pill bg-purple-100 text-purple-800" title="Centro de Responsabilidad asociado">${escapeHtml(cr.nombre)}</span>`
-    : `<button class="pill bg-amber-100 text-amber-800 hover:bg-amber-200" data-asociar-cr data-servicio="${escapeHtml(srv)}" title="Crear o asociar a un Centro de Responsabilidad">Sin CR · asignar</button>`;
-  const jefeCard = cr
-    ? contactoCardHTML('cr', cr.id, 'jefe', cr.jefe)
-    : `<div class="border border-dashed border-amber-300 bg-amber-50 rounded p-3 flex items-start gap-2">
-        <i data-lucide="briefcase" class="text-amber-700 mt-0.5"></i>
-        <div class="flex-1">
-          <div class="text-xs font-semibold text-amber-800">Jefe del Centro de Responsabilidad</div>
-          <div class="text-xs text-amber-900 mt-1">Sin CR asociado. Asigne uno para registrar al Jefe.</div>
-          <button class="btn btn-secondary btn-xs mt-2" data-asociar-cr data-servicio="${escapeHtml(srv)}"><i data-lucide="link"></i> Asociar a un CR</button>
-        </div>
-      </div>`;
   const otrosBlock = `
     <details class="mt-3 border-t border-slate-100 pt-2" ${otros.length?'open':''}>
       <summary class="text-xs font-medium text-slate-600 flex items-center gap-2 cursor-pointer">
@@ -4390,12 +4760,10 @@ function renderServicioCard_(srv){
       <i data-lucide="hospital" class="text-slate-500"></i>
       <div class="font-semibold text-slate-800">${escapeHtml(srv)}</div>
       ${badgeCount}
-      <div class="ml-auto">${crLbl}</div>
     </div>
-    <div class="grid md:grid-cols-3 gap-3">
+    <div class="grid md:grid-cols-2 gap-3">
       ${contactoCardHTML('servicio', srv, 'supervisor', c.supervisor)}
       ${contactoCardHTML('servicio', srv, 'encargado', c.encargado)}
-      ${jefeCard}
     </div>
     ${otrosBlock}
   </div>`;
@@ -5277,13 +5645,18 @@ function _parseSegsTxt_(txt){
     return { id:'s'+Math.random().toString(36).slice(2,8), fecha:m[1], tipo, contactadoA:contactado, texto:m[4]||'' };
   }).filter(Boolean);
 }
+function _stripIdPrefix_(s, prefix){
+  if (s == null) return '';
+  const str = String(s);
+  return str.indexOf(prefix) === 0 ? str.slice(prefix.length) : str;
+}
 function _eventoFromSheet_(o){
-  /* Acepta 'ID Evento' (v3.12+) o 'ID' (legacy). El id correlativo se vuelve
-     string en memoria; sólo importa la unicidad dentro de la sesión. */
+  /* Acepta 'ID Evento' (v3.12+) o 'ID' (legacy). El id se desprefija
+     'EV_' (v3.14+) para mantener consistencia con el ID interno local. */
   const rawId = o['ID Evento'] != null ? o['ID Evento'] : o['ID'];
   const creado = o['Fecha registro'] || null;
   return {
-    id: rawId != null && rawId !== '' ? String(rawId) : '',
+    id: rawId != null && rawId !== '' ? _stripIdPrefix_(rawId, 'EV_') : '',
     inv: o['N° Inventario'] || '',
     equipo: o['Equipo'] || '',
     servicio: o['Servicio'] || '',
@@ -5307,7 +5680,7 @@ function _eventoFromSheet_(o){
 function _pendienteFromSheet_(o){
   const rawId = o['ID Pendiente'] != null ? o['ID Pendiente'] : o['ID'];
   const out = {
-    id: rawId != null && rawId !== '' ? String(rawId) : '',
+    id: rawId != null && rawId !== '' ? _stripIdPrefix_(rawId, 'PEND_') : '',
     inv: o['N° Inventario'] || '',
     equipo: o['Equipo'] || '',
     servicio: o['Servicio'] || '',
@@ -5323,7 +5696,7 @@ function _pendienteFromSheet_(o){
     archivos: []
   };
   const evId = o['ID Evento asociado'];
-  if (evId != null && evId !== '') out.eventoId = String(evId);
+  if (evId != null && evId !== '') out.eventoId = _stripIdPrefix_(evId, 'EV_');
   return out;
 }
 function _remapByKey_(raw, transformer){
@@ -5354,8 +5727,17 @@ async function gasPull(url){
     state.eventos    = _remapByKey_(data.eventos,    _eventoFromSheet_);
     state.pendientes = _remapByKey_(data.pendientes, _pendienteFromSheet_);
     state.agenda     = data.agenda && typeof data.agenda === 'object'
-      ? { servicios: data.agenda.servicios || {}, centros: Array.isArray(data.agenda.centros) ? data.agenda.centros : [] }
-      : { servicios:{}, centros:[] };
+      ? {
+          servicios:  data.agenda.servicios || {},
+          centros:    Array.isArray(data.agenda.centros)    ? data.agenda.centros    : [],
+          directorio: Array.isArray(data.agenda.directorio) ? data.agenda.directorio : [],
+          empresas:   Array.isArray(data.agenda.empresas)   ? data.agenda.empresas   : []
+        }
+      : { servicios:{}, centros:[], directorio:[], empresas:[] };
+    Object.keys(state.agenda.servicios).forEach(k=>{
+      if (!state.agenda.servicios[k].otros) state.agenda.servicios[k].otros = [];
+    });
+    state.agenda.empresas.forEach(emp=>{ if (!Array.isArray(emp.contactos)) emp.contactos = []; });
     syncMarked = new Set(Array.isArray(data.syncMarked) ? data.syncMarked : []);
     /* persistir local, pero SIN re-disparar push automático */
     const savedAuto = gasState.autoSync; gasState.autoSync = false;
@@ -5858,6 +6240,205 @@ function recScrollH(){
 }
 const recScrollDeb = debounce(recScrollH, 250);
 
+/* Panel flotante de comentarios de sesión (v4.8) */
+const REC_PANEL_POS_KEY       = 'mp_rec_panel_pos';
+const REC_PANEL_COLLAPSED_KEY = 'mp_rec_panel_collapsed';
+const REC_SESSION_BUFFER_KEY  = 'mp_rec_session_buffer';
+
+function _recIsMobile_(){
+  return !!(window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+}
+function recBufferGet(){
+  try {
+    const raw = localStorage.getItem(REC_SESSION_BUFFER_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch(_){ return []; }
+}
+function recBufferAdd(comentario){
+  try {
+    const arr = recBufferGet();
+    arr.push(comentario);
+    localStorage.setItem(REC_SESSION_BUFFER_KEY, JSON.stringify(arr));
+  } catch(e){
+    if (e && e.name === 'QuotaExceededError') toast('Sin espacio en localStorage para guardar el comentario','warn');
+  }
+}
+function recBufferClear(){
+  try { localStorage.removeItem(REC_SESSION_BUFFER_KEY); } catch(_){}
+}
+function recPanelOpenModalDesc_(){
+  const mods = document.getElementById('modals');
+  if (!mods || !mods.lastElementChild) return null;
+  const top = mods.lastElementChild;
+  if (top.id) return top.id;
+  if (top.dataset && top.dataset.key) return top.dataset.key;
+  const inner = top.querySelector('.modal');
+  if (inner && inner.id) return inner.id;
+  return null;
+}
+function recPanelMount(){
+  if (document.getElementById('rec-panel')) return;
+  const html = `
+    <div id="rec-panel" class="rec-panel" role="region" aria-label="Comentario de sesión">
+      <div id="rec-panel-header" class="rec-panel-header">
+        <span class="rec-dot" style="margin-right:0;vertical-align:middle;"></span>
+        <span class="rec-panel-title">Comentario de sesión</span>
+        <span class="rec-panel-count" id="rec-panel-count" title="Comentarios en esta sesión">0</span>
+        <button type="button" id="rec-panel-collapse" class="rec-panel-btn" title="Colapsar / expandir" aria-label="Colapsar">
+          <i data-lucide="chevron-down" class="chev-down"></i>
+        </button>
+      </div>
+      <div id="rec-panel-body" class="rec-panel-body">
+        <textarea id="rec-panel-text" rows="3" placeholder="¿Qué ajuste querés anotar? (Enter para enviar, Shift+Enter para nueva línea)"></textarea>
+        <div class="rec-panel-footer">
+          <span id="rec-panel-msg" class="rec-panel-msg" role="status" aria-live="polite"></span>
+          <span class="text-xs text-slate-500 ml-auto"><span id="rec-panel-count-foot">0</span> comentario(s)</span>
+          <button type="button" id="rec-panel-send" class="btn btn-primary btn-xs" disabled>Enviar</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  const panel = document.getElementById('rec-panel');
+  if (!_recIsMobile_()){
+    try {
+      const raw = localStorage.getItem(REC_PANEL_POS_KEY);
+      if (raw){
+        const p = JSON.parse(raw);
+        if (p && typeof p.left === 'number' && typeof p.top === 'number'){
+          const maxL = Math.max(0, window.innerWidth  - 80);
+          const maxT = Math.max(0, window.innerHeight - 80);
+          panel.style.left   = Math.max(0, Math.min(p.left, maxL)) + 'px';
+          panel.style.top    = Math.max(0, Math.min(p.top,  maxT)) + 'px';
+          panel.style.right  = 'auto';
+          panel.style.bottom = 'auto';
+        }
+      }
+    } catch(_){}
+  }
+  if (localStorage.getItem(REC_PANEL_COLLAPSED_KEY) === '1') panel.classList.add('collapsed');
+  recPanelUpdateCount();
+  const ta     = document.getElementById('rec-panel-text');
+  const btn    = document.getElementById('rec-panel-send');
+  const colBtn = document.getElementById('rec-panel-collapse');
+  const updateBtn = ()=>{ btn.disabled = !ta.value.trim(); };
+  ta.addEventListener('input', updateBtn);
+  ta.addEventListener('keydown', (e)=>{
+    if (e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      recPanelSubmit_();
+    }
+  });
+  btn.addEventListener('click', recPanelSubmit_);
+  colBtn.addEventListener('click', ()=>{
+    panel.classList.toggle('collapsed');
+    try { localStorage.setItem(REC_PANEL_COLLAPSED_KEY, panel.classList.contains('collapsed') ? '1' : '0'); } catch(_){}
+  });
+  if (!_recIsMobile_()){
+    const header = document.getElementById('rec-panel-header');
+    let dragging = false, sx=0, sy=0, ox=0, oy=0;
+    header.addEventListener('mousedown', (e)=>{
+      if (e.target.closest('button')) return;
+      dragging = true;
+      const r = panel.getBoundingClientRect();
+      ox = r.left; oy = r.top;
+      sx = e.clientX; sy = e.clientY;
+      panel.style.right  = 'auto';
+      panel.style.bottom = 'auto';
+      panel.style.left   = ox + 'px';
+      panel.style.top    = oy + 'px';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', recPanelOnDrag_);
+    document.addEventListener('mouseup',   recPanelOnDrop_);
+    panel._dragCtx = {
+      get dragging(){ return dragging; },
+      set dragging(v){ dragging = v; },
+      get sx(){return sx;}, get sy(){return sy;}, get ox(){return ox;}, get oy(){return oy;}
+    };
+  }
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+  setTimeout(()=>{ try { ta.focus(); } catch(_){} }, 30);
+}
+function recPanelOnDrag_(e){
+  const panel = document.getElementById('rec-panel');
+  if (!panel || !panel._dragCtx || !panel._dragCtx.dragging) return;
+  const ctx = panel._dragCtx;
+  const nx = Math.max(0, Math.min(ctx.ox + (e.clientX - ctx.sx), window.innerWidth  - 80));
+  const ny = Math.max(0, Math.min(ctx.oy + (e.clientY - ctx.sy), window.innerHeight - 80));
+  panel.style.left = nx + 'px';
+  panel.style.top  = ny + 'px';
+}
+function recPanelOnDrop_(){
+  const panel = document.getElementById('rec-panel');
+  if (!panel || !panel._dragCtx || !panel._dragCtx.dragging) return;
+  panel._dragCtx.dragging = false;
+  try {
+    localStorage.setItem(REC_PANEL_POS_KEY, JSON.stringify({
+      left: parseFloat(panel.style.left) || 0,
+      top:  parseFloat(panel.style.top)  || 0
+    }));
+  } catch(_){}
+}
+function recPanelUnmount(){
+  document.removeEventListener('mousemove', recPanelOnDrag_);
+  document.removeEventListener('mouseup',   recPanelOnDrop_);
+  const p = document.getElementById('rec-panel');
+  if (p) p.remove();
+}
+function recPanelUpdateCount(){
+  const n = (recState.events || []).filter(ev => ev && ev.type === 'comentario_usuario').length;
+  const h = document.getElementById('rec-panel-count');
+  const f = document.getElementById('rec-panel-count-foot');
+  if (h){
+    h.textContent = String(n);
+    h.title = n === 1 ? '1 comentario en esta sesión' : `${n} comentarios en esta sesión`;
+  }
+  if (f) f.textContent = String(n);
+}
+function recPanelFlashMsg_(text){
+  const el = document.getElementById('rec-panel-msg');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(el._h);
+  el._h = setTimeout(()=>{ el.classList.remove('show'); el.textContent = ''; }, 1500);
+}
+function recPanelSubmit_(){
+  if (!recState.active) return;
+  const ta = document.getElementById('rec-panel-text');
+  if (!ta) return;
+  const texto = (ta.value || '').trim();
+  if (!texto) return;
+  const evs = recState.events || [];
+  const last = evs.length ? evs[evs.length-1] : null;
+  const prev = evs.slice(-3).map(e => ({ ...e }));
+  const cont = document.getElementById('content');
+  const comentario = {
+    type: 'comentario_usuario',
+    iso: new Date().toISOString(),
+    texto,
+    contexto: {
+      view: recCurrentView(),
+      lastTarget: last && last.target ? last.target : null,
+      lastPath:   last && last.path   ? last.path   : null,
+      prevEvents: prev,
+      activeElement: recDescribeTarget(document.activeElement),
+      openModal: recPanelOpenModalDesc_(),
+      scrollTop: cont ? cont.scrollTop : 0
+    }
+  };
+  recPush(comentario);
+  recBufferAdd(comentario);
+  ta.value = '';
+  const btn = document.getElementById('rec-panel-send');
+  if (btn) btn.disabled = true;
+  recPanelUpdateCount();
+  recPanelFlashMsg_('Comentario guardado');
+  try { ta.focus(); } catch(_){}
+}
+
 function recUpdateButton(){
   const lbl = document.getElementById('rec-label');
   const ind = document.getElementById('rec-indicator');
@@ -5885,6 +6466,14 @@ function toggleRecording(){
 
 function startRecording(){
   if (recState.active) return;
+  /* Recuperación de comentarios de una sesión previa no exportada */
+  const buf = recBufferGet();
+  let recovered = [];
+  if (buf.length){
+    const ok = confirm('Hay ' + buf.length + ' comentario(s) de una sesión previa no exportada.\n\nAceptar = incluir en esta grabación\nCancelar = descartar');
+    if (ok) recovered = buf.slice();
+    recBufferClear();
+  }
   recState.active = true;
   recState.events = [];
   recState.startedAt = Date.now();
@@ -5900,7 +6489,13 @@ function startRecording(){
     loaded: !!state.loaded,
     nEquipos: state.equipos.length,
     nEventos: Object.values(state.eventos).reduce((s,a)=>s+a.length,0),
-    nPendientes: Object.values(state.pendientes).reduce((s,a)=>s+a.length,0)
+    nPendientes: Object.values(state.pendientes).reduce((s,a)=>s+a.length,0),
+    recoveredComments: recovered.length
+  });
+  recovered.forEach(c => {
+    if (!c || typeof c !== 'object') return;
+    recState.events.push(Object.assign({}, c, { t: 0, _recovered: true }));
+    recBufferAdd(c);
   });
   document.addEventListener('click',  recClickH,  true);
   document.addEventListener('change', recChangeH, true);
@@ -5909,7 +6504,11 @@ function startRecording(){
   const cont = document.getElementById('content');
   if (cont) cont.addEventListener('scroll', recScrollDeb, true);
   recUpdateButton();
-  toast('Grabación iniciada. Las interacciones se están registrando.', 'ok');
+  recPanelMount();
+  const msg = recovered.length
+    ? 'Grabación iniciada (' + recovered.length + ' comentario(s) recuperados).'
+    : 'Grabación iniciada. Las interacciones se están registrando.';
+  toast(msg, 'ok');
 }
 
 function stopRecording(){
@@ -5925,12 +6524,13 @@ function stopRecording(){
   const payload = {
     version: 1,
     app: 'Gestion MP 2026',
-    appVersion: 'v4.7',
+    appVersion: 'v5.0',
     startedAt: new Date(recState.startedAt).toISOString(),
     durationMs: dur,
     eventCount: recState.events.length,
     events: recState.events
   };
+  let downloadOK = false;
   try {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -5939,12 +6539,15 @@ function stopRecording(){
     a.download = `sesion_MP_${stamp}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
+    downloadOK = true;
     toast(`Grabación detenida (${recState.events.length} eventos en ${(dur/1000).toFixed(1)}s). Archivo descargado.`, 'ok');
   } catch(e){
-    toast('Error al guardar la grabación: '+e.message, 'err');
+    toast('Error al guardar la grabación: '+e.message+'. Los comentarios quedan en el buffer y se ofrecerán al iniciar la próxima grabación.', 'err');
   }
+  if (downloadOK) recBufferClear();
   recState.active = false;
   recState.events = [];
+  recPanelUnmount();
   recUpdateButton();
 }
 
@@ -5974,6 +6577,11 @@ document.addEventListener('keydown', (e)=>{
 /* ============================================================
    INIT
    ============================================================ */
+(function populateEjecutoresDatalist_(){
+  const dl = document.getElementById('ejecutores-dl');
+  if (!dl) return;
+  dl.innerHTML = EJECUTORES.map(e=>`<option value="${escapeHtml(e)}">`).join('');
+})();
 loadPersisted();
 loadSyncMarked();
 gasLoadConfig();
