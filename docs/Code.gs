@@ -79,6 +79,7 @@
 const SS_ID = ''; // Vacío = usa la hoja donde está pegado el script
 const SHEET_EVENTOS      = 'Eventos';
 const SHEET_PENDIENTES   = 'Pendientes';
+const SHEET_TAREAS       = 'Tareas';
 const SHEET_AGENDA_SERV     = 'Agenda_Servicios';
 const SHEET_AGENDA_OTROS    = 'Agenda_Otros';
 const SHEET_AGENDA_CR       = 'Agenda_Centros';
@@ -92,6 +93,7 @@ const SHEET_META         = 'Meta';
 const HEADERS = {
   [SHEET_EVENTOS]:        ['ID Evento','N° Inventario','Equipo','Servicio','Familia','Tipo de evento','Fecha','Fecha registro','Resultado','Ejecutor','Estado del equipo','Empresa','Técnico (visita)','N° Envío','N° Cotización','N° OC','Folio','Folio guía','Observación','Adjuntos (URL)','Actualizado'],
   [SHEET_PENDIENTES]:     ['ID Pendiente','N° Inventario','Equipo','Servicio','Descripción','Fecha creación','Fecha compromiso','Próximo recordatorio','Fecha cierre','Ejecutor','Estado','Tareas','Seguimientos','ID Evento asociado','Adjuntos (URL)','Actualizado'],
+  [SHEET_TAREAS]:         ['ID Tarea','ID Pendiente','N° Inventario','Equipo','Descripción','Estado','Fecha'],
   [SHEET_AGENDA_SERV]:    ['servicio','cargo','nombre','email','anexo','celular'],
   [SHEET_AGENDA_OTROS]:   ['servicio','id','rol','nombre','email','anexo','celular'],
   [SHEET_AGENDA_CR]:      ['id','nombre','jefe_nombre','jefe_email','jefe_anexo','jefe_celular','servicios'],
@@ -183,7 +185,7 @@ function _doSetup_(ss) {
     sh.setFrozenRows(1);
   });
   setMeta_('setupAt', new Date().toISOString());
-  setMeta_('version', '3.12');
+  setMeta_('version', '3.13');
 }
 
 /**
@@ -231,6 +233,7 @@ function migrate() {
   });
   /* Ocultar hojas técnicas también al migrar */
   hideSystemSheets_();
+  setMeta_('version', '3.13');
   Logger.log('Migrate completo. ' + creadas + ' hoja(s) nueva(s), ' + colsAgregadas + ' columna(s) agregada(s). Hojas técnicas ocultadas.');
   return { ok: true, created: creadas, columnsAdded: colsAgregadas };
 }
@@ -540,8 +543,8 @@ function replaceAll_(payload) {
     const sh = ss.getSheetByName(SHEET_EVENTOS);
     resetSheet_(sh, HEADERS[SHEET_EVENTOS]);
     /* Aplanar eventos de todas las keys y ordenar por fecha de creación
-       (ev.creadoEn) ascendente, fallback a ev.fecha, para que el ID
-       correlativo refleje el orden cronológico de captura. */
+       (ev.creadoEn) ascendente, fallback a ev.fecha, para que el orden
+       en la hoja sea cronológico. El ID es el ID interno (string estable). */
     const flat = [];
     Object.entries(payload.eventos).forEach(([key, arr]) => {
       const eqInfo = lookup[key] || {};
@@ -555,14 +558,7 @@ function replaceAll_(payload) {
     });
     const rows = [];
     const formulas = [];
-    /* Mapa internalId → correlativo del evento (1-based). Lo usan los
-       pendientes para escribir "ID Evento asociado" coherente con la
-       columna ID Evento de la hoja Eventos. */
-    const eventoIdMap = {};
-    flat.forEach(({ ev }, i) => { if (ev.id) eventoIdMap[String(ev.id)] = i + 1; });
-    /* Exponer para el bloque de pendientes abajo */
-    payload._eventoIdMap = eventoIdMap;
-    flat.forEach(({ key, ev, eqInfo, nInv }, i) => {
+    flat.forEach(({ key, ev, eqInfo, nInv }) => {
       let empresaLbl = ev.empresa || '';
       let tecnicoLbl = '';
       if (ev.empresaId && empMap[ev.empresaId]) empresaLbl = empMap[ev.empresaId].nombre || empresaLbl;
@@ -576,7 +572,7 @@ function replaceAll_(payload) {
       if (ev.creadoEn) { try { creadoEn = new Date(ev.creadoEn); } catch(_){ creadoEn = ev.creadoEn; } }
       else if (ev.fecha) { try { creadoEn = new Date(ev.fecha); } catch(_){ creadoEn = ev.fecha; } }
       rows.push([
-        i + 1,                                       /* ID Evento (numérico correlativo) */
+        ev.id ? String(ev.id) : '',                  /* ID Evento (ID interno estable) */
         nInv, eqInfo.equipo||'', eqInfo.servicio||'', eqInfo.fam||'',
         tipoLbl, ev.fecha||'', creadoEn,             /* Fecha + Fecha registro */
         ev.resultado||'', ev.ejecutor||'', ev.estado||'',
@@ -591,6 +587,9 @@ function replaceAll_(payload) {
       }
     });
     if (rows.length){
+      /* Forzar columna ID a texto plano para que Sheets no convierta IDs
+         numéricos largos (YYYYMMDDHHMMSS) a notación científica. */
+      sh.getRange(2, 1, rows.length, 1).setNumberFormat('@');
       sh.getRange(2, 1, rows.length, HEADERS[SHEET_EVENTOS].length).setValues(rows);
       /* Adjuntos en columna "Adjuntos (URL)" (índice 20, 1-based tras agregar
          Fecha registro) — RichTextValue para crear links clickeables sin
@@ -615,7 +614,7 @@ function replaceAll_(payload) {
     });
     const rows = [];
     const formulas = [];
-    flatP.forEach(({ key, p, eqInfo, nInv }, i) => {
+    flatP.forEach(({ key, p, eqInfo, nInv }) => {
       const tareasTxt = (p.tareas||[]).map(t=>`[${t.estado==='cerrado'?'x':' '}] ${t.descripcion||''}`).join('\n');
       const segsTxt = (p.actualizaciones||[]).slice().sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||'')).map(a=>{
         const tipoLbl = a.tipo ? `[${a.tipo}]` : '';
@@ -623,14 +622,12 @@ function replaceAll_(payload) {
         return `${a.fecha||''} ${tipoLbl}${cont}: ${a.texto||''}`;
       }).join('\n');
       const adjuntos = p.archivos || [];
-      /* Resolver eventoId interno → correlativo de la hoja Eventos */
-      const evCorrel = (p.eventoId && payload._eventoIdMap && payload._eventoIdMap[String(p.eventoId)]) || '';
       rows.push([
-        i + 1,                                       /* ID Pendiente (numérico correlativo) */
+        p.id ? String(p.id) : '',                    /* ID Pendiente (ID interno estable) */
         nInv, eqInfo.equipo||'', eqInfo.servicio||'',
         p.descripcion||'', p.fecha||'', p.fechaCompromiso||'', p.proximoRecordatorio||'', p.fechaCierre||'',
         p.ejecutor||'', p.estado||'', tareasTxt, segsTxt,
-        evCorrel,                                    /* ID Evento asociado (correlativo del Sheet) */
+        p.eventoId ? String(p.eventoId) : '',        /* ID Evento asociado (ID interno) */
         '', now
       ]);
       if (adjuntos.length){
@@ -638,9 +635,37 @@ function replaceAll_(payload) {
       }
     });
     if (rows.length){
+      sh.getRange(2, 1, rows.length, 1).setNumberFormat('@');                 /* ID Pendiente como texto */
+      sh.getRange(2, 14, rows.length, 1).setNumberFormat('@');                /* ID Evento asociado como texto */
       sh.getRange(2, 1, rows.length, HEADERS[SHEET_PENDIENTES].length).setValues(rows);
       /* Adjuntos columna 15 (1-based) tras agregar 'ID Evento asociado' — RichTextValue */
       formulas.forEach(f => setAdjuntosCell_(sh, 2 + f.rowIdx, 15, f.archivos));
+    }
+
+    /* Hoja Tareas: una fila por tarea, ID con prefijo TAR_ para que cada
+       tarea sea referenciable desde Sheets sin necesidad de parsear el
+       texto multi-línea de la columna "Tareas" en Pendientes. */
+    const shT = ss.getSheetByName(SHEET_TAREAS);
+    if (shT){
+      resetSheet_(shT, HEADERS[SHEET_TAREAS]);
+      const tRows = [];
+      flatP.forEach(({ p, eqInfo, nInv }) => {
+        (p.tareas||[]).forEach(t => {
+          tRows.push([
+            t.id ? 'TAR_' + String(t.id) : '',
+            p.id  ? String(p.id) : '',
+            nInv,
+            eqInfo.equipo || '',
+            t.descripcion || '',
+            t.estado || '',
+            t.fecha || ''
+          ]);
+        });
+      });
+      if (tRows.length){
+        shT.getRange(2, 1, tRows.length, 2).setNumberFormat('@');             /* ID Tarea + ID Pendiente como texto */
+        shT.getRange(2, 1, tRows.length, HEADERS[SHEET_TAREAS].length).setValues(tRows);
+      }
     }
   }
 

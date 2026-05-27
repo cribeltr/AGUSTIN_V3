@@ -334,7 +334,7 @@
       <div class="sidebar-btn" data-view="agenda" title="Agenda"><i data-lucide="users"></i><span class="s-text">Agenda</span></div>
     </nav>
     <div class="p-3 text-xs text-slate-400 border-t border-slate-700 space-y-2 s-foot">
-      <div>v4.8 · datos locales</div>
+      <div>v4.9 · datos locales</div>
       <button onclick="openGasSettings()" class="sidebar-link" title="Configurar y sincronizar con Google Sheets">
         <span id="gas-status-dot" class="gas-dot off"></span><span>Google Sheets</span>
       </button>
@@ -404,6 +404,8 @@
 
 <!-- Modals container -->
 <div id="modals"></div>
+<!-- Datalist global para typeahead de ejecutores (form de evento y de pendiente) -->
+<datalist id="ejecutores-dl"></datalist>
 <div id="toasts" class="toast"></div>
 <!-- Loading overlay -->
 <div id="ld" class="ld-overlay" role="status" aria-live="polite">
@@ -666,18 +668,23 @@ function toast(msg, kind='ok', action){
   const wrap = document.getElementById('toasts');
   const div = document.createElement('div');
   div.className = kind;
-  if (action && action.label && typeof action.fn === 'function'){
+  const actions = Array.isArray(action)
+    ? action.filter(a=> a && a.label && typeof a.fn === 'function')
+    : (action && action.label && typeof action.fn === 'function' ? [action] : []);
+  if (actions.length){
     const span = document.createElement('span');
     span.textContent = msg;
     div.appendChild(span);
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = action.label;
-    btn.style.cssText = 'margin-left:10px;text-decoration:underline;color:inherit;background:transparent;border:0;cursor:pointer;font-weight:600;font-size:13px;';
-    btn.addEventListener('click', ()=>{ try { action.fn(); } finally { div.remove(); } });
-    div.appendChild(btn);
+    actions.forEach(a=>{
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = a.label;
+      btn.style.cssText = 'margin-left:10px;text-decoration:underline;color:inherit;background:transparent;border:0;cursor:pointer;font-weight:600;font-size:13px;';
+      btn.addEventListener('click', ()=>{ try { a.fn(); } finally { div.remove(); } });
+      div.appendChild(btn);
+    });
     wrap.appendChild(div);
-    setTimeout(()=>div.remove(), 7000);
+    setTimeout(()=>div.remove(), actions.length > 1 ? 9000 : 7000);
   } else {
     div.textContent = msg;
     wrap.appendChild(div);
@@ -1562,11 +1569,11 @@ function renderHoy(){
       </div>
 
       <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-5">
-        ${kpiCard('Vencidos', vencidos.length, 'red', 'alert-triangle')}
-        ${kpiCard('Por recontactar', porRecontactar.length, 'amber', 'bell')}
-        ${kpiCard('Para hoy', hoy.length, 'amber', 'calendar-check')}
-        ${kpiCard('Próximos 7 días', prox.length, 'blue', 'calendar-days')}
-        ${kpiCard('Sin compromiso', sinComp.length, 'gray', 'help-circle')}
+        ${kpiCard('Vencidos', vencidos.length, 'red', 'alert-triangle', 'vencidos')}
+        ${kpiCard('Por recontactar', porRecontactar.length, 'amber', 'bell', 'recontactar')}
+        ${kpiCard('Para hoy', hoy.length, 'amber', 'calendar-check', 'hoy')}
+        ${kpiCard('Próximos 7 días', prox.length, 'blue', 'calendar-days', 'semana')}
+        ${kpiCard('Sin compromiso', sinComp.length, 'gray', 'help-circle', 'sin')}
         ${kpiCard('Cerrados hoy', cerradosHoy.length, 'green', 'check-circle-2')}
         ${kpiCard('Registros hoy', registrosHoy.length, 'blue', 'history')}
         ${kpiCard('Alerta > 30d', equiposAlerta.length, 'red', 'alert-octagon')}
@@ -1589,7 +1596,21 @@ function renderHoy(){
   bindPendActions();
   bindLogActions();
   _bindPendTablaClicks_();
+  _bindHoyKpiClicks_();
   lucide.createIcons();
+}
+function _bindHoyKpiClicks_(){
+  document.querySelectorAll('#view-hoy [data-kpi-period]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      pendFilters.q = '';
+      pendFilters.estado = 'todos';
+      pendFilters.mio = false;
+      pendFilters.servicio = '';
+      pendFilters.ejecutor = '';
+      pendFilters.periodo = el.dataset.kpiPeriod;
+      selectView('pendientes');
+    });
+  });
 }
 /* ============================================================
    TABLAS DE PENDIENTES POR SERVICIO Y POR RESPONSABLE
@@ -1638,7 +1659,11 @@ function _pendTablaHTML_(titulo, icon, color, agrupador, items, today, kind){
       return `<td style="text-align:center;" class="${cls} hover:opacity-80 cursor-pointer" data-pend-tabla data-kind="${kind}" data-key="${escapeHtml(k)}" data-periodo="${c.id}">${n}</td>`;
     }).join('')}</tr>`;
   }).join('');
-  const totalRow = `<tr class="font-semibold bg-slate-100"><td>Total</td>${PEND_TABLA_COLS.map(c=>`<td style="text-align:center;">${totales[c.id]||0}</td>`).join('')}</tr>`;
+  const totalRow = `<tr class="font-semibold bg-slate-100"><td>Total</td>${PEND_TABLA_COLS.map(c=>{
+      const n = totales[c.id]||0;
+      if (!n) return `<td style="text-align:center;color:#cbd5e1;">·</td>`;
+      return `<td style="text-align:center;" class="hover:opacity-80 cursor-pointer" data-pend-tabla data-kind="${kind}" data-key="__all__" data-periodo="${c.id}" title="Ver todos los pendientes del periodo (sin filtrar por ${kind==='servicio'?'servicio':'responsable'})">${n}</td>`;
+    }).join('')}</tr>`;
   return `<details open class="mb-3 bg-white border border-slate-200 rounded">
     <summary class="px-3 py-2 section-title ${color}"><i data-lucide="chevron-right" class="chev"></i><i data-lucide="${icon}"></i> ${escapeHtml(titulo)} <span class="count">${claves.length}</span></summary>
     <div class="p-2 overflow-auto">
@@ -1671,8 +1696,15 @@ function _bindPendTablaClicks_(){
       pendFilters.servicio = '';
       pendFilters.ejecutor = '';
       const k = el.dataset.key;
-      if (el.dataset.kind === 'servicio') pendFilters.servicio = (k === '(general)' ? '__general__' : k);
-      else                                pendFilters.ejecutor = (k === '(sin asignar)' ? '__sin_asignar__' : k);
+      if (k === '__all__'){
+        /* Fila Total: no filtra por servicio/responsable, sólo por período */
+        pendFilters.servicio = '';
+        pendFilters.ejecutor = '';
+      } else if (el.dataset.kind === 'servicio'){
+        pendFilters.servicio = (k === '(general)' ? '__general__' : k);
+      } else {
+        pendFilters.ejecutor = (k === '(sin asignar)' ? '__sin_asignar__' : k);
+      }
       const per = el.dataset.periodo;
       pendFilters.periodo = per === 'porIniciar' ? 'porIniciar'
                           : per === 'vencidos' ? 'vencidos'
@@ -1705,9 +1737,12 @@ function equiposAlertaSection_(items){
   </details>`;
 }
 
-function kpiCard(label, n, color, icon){
+function kpiCard(label, n, color, icon, clickPeriod){
   const cls = { red:'border-red-200 bg-red-50 text-red-700', amber:'border-amber-200 bg-amber-50 text-amber-700', blue:'border-blue-200 bg-blue-50 text-blue-700', green:'border-green-200 bg-green-50 text-green-700', gray:'border-slate-200 bg-white text-slate-600' }[color];
-  return `<div class="rounded border ${cls} p-3 flex items-center gap-3">
+  const clickAttrs = clickPeriod
+    ? ` data-kpi-period="${escapeHtml(clickPeriod)}" class="rounded border ${cls} p-3 flex items-center gap-3 cursor-pointer hover:shadow transition" title="Ver lista filtrada en Pendientes"`
+    : ` class="rounded border ${cls} p-3 flex items-center gap-3"`;
+  return `<div${clickAttrs}>
     <i data-lucide="${icon}"></i>
     <div>
       <div class="text-xs">${escapeHtml(label)}</div>
@@ -1976,6 +2011,7 @@ function renderPendientes(){
   const periodos = [
     { id:'todos',  label:'Todos',         icon:'list' },
     { id:'porIniciar', label:'Por iniciar', icon:'hourglass' },
+    { id:'recontactar', label:'Por recontactar', icon:'bell' },
     { id:'vencidos', label:'Vencidos',    icon:'alert-triangle' },
     { id:'hoy',    label:'Hoy',           icon:'calendar-check' },
     { id:'semana', label:'Esta semana',   icon:'calendar-days' },
@@ -1989,6 +2025,7 @@ function renderPendientes(){
     const counts = {
       todos:    flatPendientes(p=>estadoMatch(p)).length,
       porIniciar: flatPendientes(p=>p.estado==='creado').length,
+      recontactar: flatPendientes(p=>isRecordatorioVencido(p, today)).length,
       vencidos: flatPendientes(p=>isVencido(p, today)).length,
       hoy:      flatPendientes(p=>estadoMatch(p) && p.fechaCompromiso===today).length,
       semana:   flatPendientes(p=>{ if (!estadoMatch(p) || !p.fechaCompromiso) return false; return p.fechaCompromiso>=today && p.fechaCompromiso<=addDaysISO(today,7); }).length,
@@ -2010,6 +2047,7 @@ function renderPendientes(){
     switch(pendFilters.periodo){
       case 'todos':    return true;
       case 'porIniciar': return p.estado==='creado';
+      case 'recontactar': return isRecordatorioVencido(p, today);
       case 'vencidos': return isVencido(p, today);
       case 'hoy':      return p.estado==='abierto' && p.fechaCompromiso===today;
       case 'semana':   return p.estado==='abierto' && p.fechaCompromiso && p.fechaCompromiso>=today && p.fechaCompromiso<=addDaysISO(today,7);
@@ -2255,6 +2293,40 @@ function startPendiente(key, pid){
   savePersisted();
   refreshActiveView();
   toast('Pendiente iniciado · compromiso a 7 días', 'ok');
+}
+
+/* Plantilla rápida ligada a un evento recién guardado: crea un pendiente
+   "Pendiente de ingresar a carpeta" en el equipo del evento, asignado al
+   usuario actual con compromiso hoy y eventoId ligado. Se ofrece como
+   botón secundario en el toast tras saveEvento — atiende al patrón de
+   "guardé evento → pendiente de archivo en carpeta" registrado en sesión. */
+function crearPendienteCarpetaParaEvento_(key, eventoId){
+  if (!key || !eventoId) return;
+  let mio = getMiUsuario();
+  if (!mio){
+    mio = promptMiUsuario();
+    if (!mio) return;
+  }
+  const today = todayISO();
+  const eqLookup = state.equipos.find(e=>e.key===key) || {};
+  const nid = timestampUid(allPendienteIds_());
+  state.pendientes[key] = state.pendientes[key] || [];
+  state.pendientes[key].push({
+    id: nid,
+    descripcion: 'Pendiente de ingresar a carpeta',
+    fecha: today,
+    fechaCompromiso: today,
+    proximoRecordatorio: null,
+    fechaCierre: null,
+    ejecutor: mio,
+    estado: 'abierto',
+    tareas: [], actualizaciones: [], archivos: [],
+    inv: eqLookup.inv || '', equipo: eqLookup.equipo || '', servicio: eqLookup.servicio || '',
+    eventoId
+  });
+  savePersisted();
+  refreshActiveView();
+  toast('Pendiente "Pendiente de ingresar a carpeta" creado', 'ok', { label: 'Ver equipo', fn: ()=> openEquipoModal(key) });
 }
 
 /* Plantilla rápida: crea una actividad general "Archivar" asignada
@@ -2972,7 +3044,7 @@ function renderEventoFields(prefill){
   const tipo = document.getElementById('evt-tipo').value;
   const today = todayISO();
   const opt = (val, label, sel)=>`<option value="${escapeHtml(val)}" ${sel===val?'selected':''}>${escapeHtml(label)}</option>`;
-  const ejecOpts = (cur)=> `<option value="">— seleccionar —</option>${EJECUTORES.map(e=>opt(e,e,cur)).join('')}`;
+  const ejecInput = (cur, required)=>`<input list="ejecutores-dl" id="ev-ejecutor" class="input" value="${escapeHtml(cur||'')}" placeholder="— seleccionar o escribir —" ${required?'required':''} autocomplete="off">`;
   const estadoOpts = (cur)=> `${opt('operativo','Operativo',cur)}${opt('no operativo','No operativo',cur)}`;
   const resOpts = (cur)=> `<option value="">— seleccionar —</option>${RESULTADOS.map(r=>opt(r,r+(CAUSAS[r]?' — '+CAUSAS[r]:''),cur)).join('')}`;
   const get = (k, dflt='')=> prefill && prefill[k] != null ? prefill[k] : dflt;
@@ -2982,7 +3054,7 @@ function renderEventoFields(prefill){
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-xs font-medium text-slate-600">Fecha</label><input type="date" id="ev-fecha" class="input" value="${escapeHtml(get('fecha', today))}" required>${dateShortcuts('ev-fecha')}</div>
         <div><label class="text-xs font-medium text-slate-600">Resultado</label><select id="ev-resultado" class="input" required>${resOpts(get('resultado'))}</select></div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label><select id="ev-ejecutor" class="input" required>${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label>${ejecInput(get('ejecutor'), true)}</div>
         <div><label class="text-xs font-medium text-slate-600">Estado del equipo</label>
           <select id="ev-estado" class="input" required>
             <option value="" ${!get('estado')?'selected':''}>— seleccionar —</option>
@@ -3002,7 +3074,7 @@ function renderEventoFields(prefill){
     html = `
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-xs font-medium text-slate-600">Fecha</label><input type="date" id="ev-fecha" class="input" value="${escapeHtml(get('fecha', today))}" required>${dateShortcuts('ev-fecha')}</div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label><select id="ev-ejecutor" class="input" required>${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label>${ejecInput(get('ejecutor'), true)}</div>
         <div class="col-span-2"><label class="text-xs font-medium text-slate-600">Estado del equipo</label>
           <select id="ev-estado" class="input" required>
             <option value="" ${!get('estado')?'selected':''}>— seleccionar —</option>
@@ -3028,7 +3100,7 @@ function renderEventoFields(prefill){
         <div><label class="text-xs font-medium text-slate-600">Fecha envío</label><input type="date" id="ev-fecha" class="input" value="${escapeHtml(get('fecha', today))}" required>${dateShortcuts('ev-fecha')}</div>
         <div><label class="text-xs font-medium text-slate-600">N° envío</label><input type="text" id="ev-nenvio" class="input" value="${escapeHtml(get('nEnvio'))}"></div>
         <div><label class="text-xs font-medium text-slate-600">Empresa</label><input type="text" id="ev-empresa" class="input" value="${escapeHtml(get('empresa'))}"></div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label><select id="ev-ejecutor" class="input">${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label>${ejecInput(get('ejecutor'), false)}</div>
         <div class="col-span-2"><label class="text-xs font-medium text-slate-600">Folio solicitud</label><input type="text" id="ev-folio" class="input" value="${escapeHtml(get('folio'))}"></div>
       </div>
       <div><label class="text-xs font-medium text-slate-600">Comentario</label><textarea id="ev-com" class="input" rows="2">${escapeHtml(get('comentario'))}</textarea></div>`;
@@ -3036,7 +3108,7 @@ function renderEventoFields(prefill){
     html = `
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-xs font-medium text-slate-600">Fecha solicitud</label><input type="date" id="ev-fecha" class="input" value="${escapeHtml(get('fecha', today))}" required>${dateShortcuts('ev-fecha')}</div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor asignado</label><select id="ev-ejecutor" class="input">${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor asignado</label>${ejecInput(get('ejecutor'), false)}</div>
         <div><label class="text-xs font-medium text-slate-600">Folio solicitud</label><input type="text" id="ev-folio" class="input" value="${escapeHtml(get('folio'))}"></div>
         <div><label class="text-xs font-medium text-slate-600">Estado</label><input type="text" id="ev-estado" class="input" value="${escapeHtml(get('estado','no operativo'))}" readonly></div>
       </div>
@@ -3076,7 +3148,7 @@ function renderEventoFields(prefill){
             <button type="button" class="btn btn-secondary btn-xs" onclick="openEmpresaForm(null, true)" title="Nueva empresa"><i data-lucide="plus"></i></button>
           </div>
         </div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label><select id="ev-ejecutor" class="input" required>${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor</label>${ejecInput(get('ejecutor'), true)}</div>
         <div class="col-span-2"><label class="text-xs font-medium text-slate-600">Estado del equipo <span class="text-slate-400">(opcional)</span></label>
           <select id="ev-estado" class="input">
             <option value="" ${!get('estado')?'selected':''}>— sin cambio —</option>
@@ -3118,7 +3190,7 @@ function renderEventoFields(prefill){
           </div>
           ${curEmp ? '' : '<div class="text-xs text-slate-400 mt-1">Elija primero una empresa.</div>'}
         </div>
-        <div><label class="text-xs font-medium text-slate-600">Ejecutor responsable</label><select id="ev-ejecutor" class="input" required>${ejecOpts(get('ejecutor'))}</select></div>
+        <div><label class="text-xs font-medium text-slate-600">Ejecutor responsable</label>${ejecInput(get('ejecutor'), true)}</div>
         <div><label class="text-xs font-medium text-slate-600">Estado del equipo</label>
           <select id="ev-estado" class="input" required>
             <option value="" ${!get('estado')?'selected':''}>— seleccionar —</option>
@@ -3261,6 +3333,12 @@ function saveEvento(key, editId, andNext){
   savePersisted();
   closeForm();
   const verRegistroAction = { label: 'Ver registro', fn: ()=> openEquipoModal(key) };
+  /* Plantilla rápida "Pendiente de ingresar a carpeta" ligada al evento.
+     Sólo en eventos nuevos (no edición) y excluyendo bucket 'general'. */
+  const carpetaAction = (!editId && key !== 'general')
+    ? { label: '+ Pendiente carpeta', fn: ()=> crearPendienteCarpetaParaEvento_(key, target.id) }
+    : null;
+  const toastActions = carpetaAction ? [verRegistroAction, carpetaAction] : verRegistroAction;
   let msg;
   if (target.tipo === 'mp' && target.fecha && target.resultado){
     const mes = MONTHS_FULL[parseInt(target.fecha.slice(5,7),10)-1] || '';
@@ -3291,9 +3369,9 @@ function saveEvento(key, editId, andNext){
       }
     }, 60);
     updateSidebarBadges();
-    toast(msg + ' · listo para el siguiente equipo', 'ok', verRegistroAction);
+    toast(msg + ' · listo para el siguiente equipo', 'ok', toastActions);
   } else {
-    toast(msg, 'ok', verRegistroAction);
+    toast(msg, 'ok', toastActions);
     refreshEquipoModalIfOpen(key);
   }
 }
@@ -3331,7 +3409,7 @@ function openPendienteForm(key, editId, eventoId){
             <div><label class="text-xs font-medium text-slate-600">Fecha creación</label><input type="date" id="p-fecha" class="input" value="${escapeHtml(editing?editing.fecha:today)}" required>${dateShortcuts('p-fecha','fwd')}</div>
             <div><label class="text-xs font-medium text-slate-600">Fecha compromiso</label><input type="date" id="p-comp" class="input" value="${escapeHtml(editing&&editing.fechaCompromiso?editing.fechaCompromiso:'')}">${dateShortcuts('p-comp','fwd')}</div>
             <div class="col-span-2"><label class="text-xs font-medium text-slate-600">Ejecutor (a quién delegas)</label>
-              <select id="p-ejec" class="input"><option value="">— sin asignar —</option>${EJECUTORES.map(e=>`<option ${editing&&editing.ejecutor===e?'selected':''}>${escapeHtml(e)}</option>`).join('')}</select>
+              <input list="ejecutores-dl" id="p-ejec" class="input" value="${escapeHtml(editing&&editing.ejecutor?editing.ejecutor:'')}" placeholder="— sin asignar / escribir nombre —" autocomplete="off">
             </div>
             <div class="col-span-2"><label class="text-xs font-medium text-slate-600">Próximo recordatorio <span class="text-slate-400">(opcional — cuándo te aviso de recontactar)</span></label>
               <input type="date" id="p-rec" class="input" value="${escapeHtml(editing&&editing.proximoRecordatorio?editing.proximoRecordatorio:'')}">${dateShortcuts('p-rec','fwd')}
@@ -6242,7 +6320,7 @@ function stopRecording(){
   const payload = {
     version: 1,
     app: 'Gestion MP 2026',
-    appVersion: 'v4.8',
+    appVersion: 'v4.9',
     startedAt: new Date(recState.startedAt).toISOString(),
     durationMs: dur,
     eventCount: recState.events.length,
@@ -6295,6 +6373,11 @@ document.addEventListener('keydown', (e)=>{
 /* ============================================================
    INIT
    ============================================================ */
+(function populateEjecutoresDatalist_(){
+  const dl = document.getElementById('ejecutores-dl');
+  if (!dl) return;
+  dl.innerHTML = EJECUTORES.map(e=>`<option value="${escapeHtml(e)}">`).join('');
+})();
 loadPersisted();
 loadSyncMarked();
 gasLoadConfig();
