@@ -334,7 +334,7 @@
       <div class="sidebar-btn" data-view="agenda" title="Agenda"><i data-lucide="users"></i><span class="s-text">Agenda</span></div>
     </nav>
     <div class="p-3 text-xs text-slate-400 border-t border-slate-700 space-y-2 s-foot">
-      <div>v4.11 · datos locales</div>
+      <div>v4.12 · datos locales</div>
       <button onclick="openGasSettings()" class="sidebar-link" title="Configurar y sincronizar con Google Sheets">
         <span id="gas-status-dot" class="gas-dot off"></span><span>Google Sheets</span>
       </button>
@@ -1051,6 +1051,28 @@ function effectiveRegRes(e){
     userMonths.add(+m);
   });
   return { results: out, userMonths, ejecutores };
+}
+
+/* Programación efectiva: combina pmpMeses del .xlsm con marcas "R" derivadas
+   de pendientes de reprogramación PMP activos (no cerrados) con fecha
+   compromiso dentro del año. NO modifica e.pmpMeses (se preserva el dato
+   del archivo). Devuelve el set de meses derivados para marca visual. */
+function effectiveProgramacion(e){
+  const out = (e.pmpMeses || Array(12).fill(null)).slice();
+  const derivedMonths = new Set();
+  (state.pendientes[e.key] || []).forEach(p => {
+    if (!p || p.estado === 'cerrado') return;
+    if (!p.descripcion || !/^Reprogramar MP por causal/i.test(p.descripcion)) return;
+    if (!p.fechaCompromiso) return;
+    const y = parseInt(p.fechaCompromiso.slice(0,4), 10);
+    const m = parseInt(p.fechaCompromiso.slice(5,7), 10) - 1;
+    if (y !== PROGRAM_YEAR || m < 0 || m > 11) return;
+    if (!out[m]){
+      out[m] = 'R';
+      derivedMonths.add(m);
+    }
+  });
+  return { programacion: out, derivedMonths };
 }
 function shortEjec(name){
   if (!name) return '';
@@ -2351,7 +2373,9 @@ function abrirSelectorPlantilla_(key, eventoId){
   const eqLbl = eqLookup.equipo ? `${escapeHtml(eqLookup.equipo)} · ${escapeHtml(eqLookup.inv||'')}` : escapeHtml(key||'');
   const buttons = PLANTILLAS_PENDIENTE.map(d =>
     `<button type="button" class="btn btn-secondary w-full justify-start" style="text-align:left;" data-tpl="${escapeHtml(d)}"><i data-lucide="clipboard-list"></i> ${escapeHtml(d)}</button>`
-  ).join('');
+  ).join('') +
+    `<div class="border-t border-slate-200 my-2"></div>` +
+    `<button type="button" class="btn btn-secondary w-full justify-start" style="text-align:left;" data-tpl-custom="1"><i data-lucide="edit-3"></i> Personalizado (abrir formulario)</button>`;
   const html = `
     <div class="modal-bg" id="${id}" onclick="if(event.target===this) document.getElementById('${id}').remove();">
       <div class="modal modal-sm">
@@ -2362,7 +2386,7 @@ function abrirSelectorPlantilla_(key, eventoId){
         </div>
         <div class="p-5 space-y-2">
           <div class="text-xs text-slate-500 mb-1">Equipo: <b>${eqLbl}</b></div>
-          <div class="text-xs text-slate-500 mb-2">Asignado a <b>${escapeHtml(getMiUsuario() || '(definir nombre primero)')}</b> · Compromiso hoy · Ligado al evento recién guardado</div>
+          <div class="text-xs text-slate-500 mb-2">Asignado a <b>${escapeHtml(getMiUsuario() || '(definir nombre primero)')}</b> · Compromiso hoy · Ligado al evento</div>
           <div class="flex flex-col gap-2">${buttons}</div>
         </div>
       </div>
@@ -2373,6 +2397,12 @@ function abrirSelectorPlantilla_(key, eventoId){
       const desc = btn.dataset.tpl;
       document.getElementById(id).remove();
       crearPendienteDesdeTemplate_(key, eventoId, desc);
+    });
+  });
+  document.querySelectorAll(`#${id} [data-tpl-custom]`).forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById(id).remove();
+      openPendienteForm(key, null, eventoId);
     });
   });
   lucide.createIcons();
@@ -2753,7 +2783,14 @@ function renderEquipoModal(){
                 <tbody>
                   ${(()=>{
                     const { results, userMonths, ejecutores } = effectiveRegRes(e);
-                    const progRow = `<tr><td class="font-medium">Programación</td>${e.pmpMeses.map(c=>`<td style="text-align:center;">${codeBadge(c)}</td>`).join('')}</tr>`;
+                    const { programacion, derivedMonths } = effectiveProgramacion(e);
+                    const progRow = `<tr><td class="font-medium">Programación</td>${programacion.map((c,m)=>{
+                      if (!c) return `<td style="text-align:center;"></td>`;
+                      if (derivedMonths.has(m)){
+                        return `<td style="text-align:center;" title="Reprogramación automática derivada de una MP con causal en mes anterior. No está en el archivo maestro.">${codeBadge(c)}<sup style="color:#2563eb;font-size:9px;margin-left:1px;">●</sup></td>`;
+                      }
+                      return `<td style="text-align:center;">${codeBadge(c)}</td>`;
+                    }).join('')}</tr>`;
                     const resRow = `<tr><td class="font-medium">Resultado</td>${results.map((c,m)=>{
                       const mark = userMonths.has(m) ? '<span title="Registrado en la app" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#2563eb;margin-right:3px;vertical-align:middle;"></span>' : '';
                       return `<td style="text-align:center;">${mark}${resBadge(c)}</td>`;
@@ -2868,7 +2905,7 @@ function renderEquipoModal(){
   root.querySelectorAll('[data-del-act]').forEach(el=> el.addEventListener('click', ()=> deleteActualizacion(el.dataset.key, el.dataset.pid, el.dataset.aid)));
   root.querySelectorAll('[data-new-ev]').forEach(el=> el.addEventListener('click', (ev)=>{ ev.preventDefault(); openEventoForm(el.dataset.key); }));
   root.querySelectorAll('[data-new-pend]').forEach(el=> el.addEventListener('click', (ev)=>{ ev.preventDefault(); openPendienteForm(el.dataset.key); }));
-  root.querySelectorAll('[data-new-pend-from-ev]').forEach(el=> el.addEventListener('click', (ev)=>{ ev.preventDefault(); openPendienteForm(el.dataset.key, null, el.dataset.id); }));
+  root.querySelectorAll('[data-new-pend-from-ev]').forEach(el=> el.addEventListener('click', (ev)=>{ ev.preventDefault(); abrirSelectorPlantilla_(el.dataset.key, el.dataset.id); }));
   root.querySelectorAll('[data-open-historial]').forEach(el=> el.addEventListener('click', (ev)=>{ ev.preventDefault(); openHistorial(el.dataset.key, true); }));
   root.querySelectorAll('[data-timeline-ev]').forEach(el=> el.addEventListener('click', ()=>{
     const id = el.dataset.timelineEv;
@@ -6397,7 +6434,7 @@ function stopRecording(){
   const payload = {
     version: 1,
     app: 'Gestion MP 2026',
-    appVersion: 'v4.11',
+    appVersion: 'v4.12',
     startedAt: new Date(recState.startedAt).toISOString(),
     durationMs: dur,
     eventCount: recState.events.length,
