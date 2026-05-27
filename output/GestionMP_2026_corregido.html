@@ -334,7 +334,7 @@
       <div class="sidebar-btn" data-view="agenda" title="Agenda"><i data-lucide="users"></i><span class="s-text">Agenda</span></div>
     </nav>
     <div class="p-3 text-xs text-slate-400 border-t border-slate-700 space-y-2 s-foot">
-      <div>v4.14 · datos locales</div>
+      <div>v4.15 · datos locales</div>
       <button onclick="openGasSettings()" class="sidebar-link" title="Configurar y sincronizar con Google Sheets">
         <span id="gas-status-dot" class="gas-dot off"></span><span>Google Sheets</span>
       </button>
@@ -1864,7 +1864,7 @@ function pendienteCardHTML(p){
           ${diasLbl}${recHtml}${ejecPill}${tareasPill}${eventoPill}
           <button class="btn btn-secondary btn-xs ml-auto" title="Editar pendiente" data-edit-pend data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="edit-3"></i></button>
         </div>
-        <div class="text-sm ${descCls} mb-1">${escapeHtml(p.descripcion)}</div>
+        <div class="text-sm ${descCls} mb-1 cursor-pointer hover:text-blue-700" title="Ver detalle del pendiente" data-pend-detalle data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}">${escapeHtml(p.descripcion)}</div>
         <div class="text-xs text-slate-500 flex flex-wrap gap-3">
           <span><b>Creado:</b> ${fmtDateInput(p.fecha)}</span>
           ${p.fechaCompromiso?`<span><b>Compromiso:</b> ${fmtDateInput(p.fechaCompromiso)}</span>`:''}
@@ -1923,6 +1923,163 @@ function bindPendActions(){
   document.querySelectorAll('[data-pend-close]').forEach(el=>{
     el.addEventListener('click', ()=> cerrarPendiente(el.dataset.key, el.dataset.pid));
   });
+  document.querySelectorAll('[data-pend-detalle]').forEach(el=>{
+    el.addEventListener('click', ()=> openPendienteDetalle(el.dataset.key, el.dataset.pid));
+  });
+}
+
+/* Modal de detalle del pendiente. Muestra descripción completa, info,
+   lista de tareas con check/eliminar/agregar, lista de seguimientos
+   con agregar/eliminar. Botones: Editar, Cerrar pendiente.
+   Al hacer cambios (toggle/agregar/eliminar) se re-abre para reflejar. */
+function openPendienteDetalle(key, pid){
+  const p = findPendiente(key, pid);
+  if (!p){ toast('Pendiente no encontrado','err'); return; }
+  const eq = state.equipos.find(e=>e.key===key) || null;
+  const eqLbl = key === 'general'
+    ? '(Actividad general)'
+    : `${eq?.equipo || '(sin equipo)'} · ${eq?.inv || eq?.id || key}`;
+  const today = todayISO();
+  const cerrado = p.estado === 'cerrado';
+  const creado = p.estado === 'creado';
+  const detenido = p.estado === 'detenido';
+  const venc = isVencido(p, today);
+
+  const estadoBadge = cerrado
+    ? `<span class="pill bg-green-100 text-green-800">Cerrado${p.fechaCierre?' '+fmtDateInput(p.fechaCierre):''}</span>`
+    : creado
+      ? `<span class="pill bg-indigo-100 text-indigo-800"><i data-lucide="hourglass"></i> Por iniciar</span>`
+      : detenido
+        ? `<span class="pill bg-slate-300 text-slate-800"><i data-lucide="pause"></i> Detenido</span>`
+        : venc
+          ? `<span class="pill bg-red-100 text-red-800">Vencido</span>`
+          : `<span class="pill bg-amber-100 text-amber-800">En gestión</span>`;
+
+  const tareas = p.tareas || [];
+  const acts = (p.actualizaciones || []).slice().sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+
+  const id = 'pd-' + uid();
+  const html = `
+    <div class="modal-bg" id="${id}" onclick="if(event.target===this) document.getElementById('${id}').remove();">
+      <div class="modal modal-sm" style="max-width:640px;">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center gap-2 sticky top-0 bg-white z-10">
+          <i data-lucide="clipboard-list" class="text-indigo-600"></i>
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold text-slate-800">Detalle del pendiente</div>
+            <div class="text-xs text-slate-500 truncate" title="${escapeHtml(eqLbl)}">${escapeHtml(eqLbl)}</div>
+          </div>
+          <button class="btn btn-secondary" onclick="document.getElementById('${id}').remove();"><i data-lucide="x"></i> Cerrar</button>
+        </div>
+        <div class="p-5 space-y-4">
+          <div>
+            <div class="text-sm text-slate-800 whitespace-pre-wrap">${escapeHtml(p.descripcion || '(sin descripción)')}</div>
+            <div class="flex flex-wrap gap-2 mt-2 text-xs">
+              ${estadoBadge}
+              ${p.fechaCompromiso ? `<span class="pill bg-slate-100 text-slate-700"><i data-lucide="calendar-check"></i> Compromiso: ${fmtDateInput(p.fechaCompromiso)}</span>` : ''}
+              ${p.proximoRecordatorio ? `<span class="pill bg-blue-100 text-blue-800"><i data-lucide="bell"></i> Recordatorio: ${fmtDateInput(p.proximoRecordatorio)}</span>` : ''}
+              ${p.ejecutor ? `<span class="pill bg-slate-100 text-slate-700"><i data-lucide="user"></i> ${escapeHtml(p.ejecutor)}</span>` : '<span class="pill bg-amber-100 text-amber-800">Sin ejecutor</span>'}
+              <span class="pill bg-slate-100 text-slate-700">Creado ${fmtDateInput(p.fecha)}</span>
+            </div>
+          </div>
+
+          <div class="border-t border-slate-100 pt-3">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-sm font-semibold text-slate-700"><i data-lucide="list-checks"></i> Tareas (${tareas.filter(t=>t.estado==='abierto').length} abiertas / ${tareas.length} totales)</div>
+              <button class="btn btn-secondary btn-xs" data-pd-add-tarea><i data-lucide="plus"></i> Agregar tarea</button>
+            </div>
+            ${tareas.length ? `<ul class="space-y-1">${tareas.map(t=>`
+              <li class="flex items-start gap-2 text-sm border border-slate-200 rounded p-2 bg-white">
+                <input type="checkbox" ${t.estado==='cerrado'?'checked':''} data-pd-toggle-tarea data-tid="${escapeHtml(t.id)}" class="mt-1" />
+                <span class="flex-1 ${t.estado==='cerrado'?'line-through text-slate-400':'text-slate-700'}">${escapeHtml(t.descripcion||'')}</span>
+                <button class="text-slate-400 hover:text-red-600" data-pd-del-tarea data-tid="${escapeHtml(t.id)}" title="Eliminar tarea"><i data-lucide="x"></i></button>
+              </li>`).join('')}</ul>` : '<div class="text-xs text-slate-400 italic">Sin tareas todavía.</div>'}
+          </div>
+
+          <div class="border-t border-slate-100 pt-3">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-sm font-semibold text-slate-700"><i data-lucide="message-square-plus"></i> Seguimientos (${acts.length})</div>
+              <button class="btn btn-primary btn-xs" data-pd-add-act><i data-lucide="plus"></i> Agregar seguimiento</button>
+            </div>
+            ${acts.length ? `<ul class="space-y-2">${acts.map(a=>{
+              const info = a.tipo ? SEGUIMIENTO_TIPOS[a.tipo] : null;
+              const tipoBadge = info ? `<span class="pill ${info.cls}"><i data-lucide="${info.icon}"></i> ${escapeHtml(info.label)}</span>` : '';
+              const aQuien = a.contactadoA ? ` <span class="text-slate-600">→ <b>${escapeHtml(a.contactadoA)}</b></span>` : '';
+              return `<li class="text-xs border-l-2 ${info?'border-'+info.color+'-300':'border-blue-300'} pl-2 py-1">
+                <div class="flex justify-between items-start gap-2 flex-wrap">
+                  <div class="flex items-center gap-1 flex-wrap">${tipoBadge}<span class="text-slate-500">${fmtDateInput(a.fecha)}</span>${aQuien}</div>
+                  <button class="text-slate-400 hover:text-red-600" data-pd-del-act data-aid="${escapeHtml(a.id)}" title="Eliminar"><i data-lucide="x"></i></button>
+                </div>
+                <div class="text-slate-700 whitespace-pre-wrap mt-0.5">${escapeHtml(a.texto||'')}</div>
+              </li>`;
+            }).join('')}</ul>` : '<div class="text-xs text-slate-400 italic">Sin seguimientos todavía. Registra uno con el botón de arriba.</div>'}
+          </div>
+
+          <div class="border-t border-slate-200 pt-3 flex justify-end gap-2 flex-wrap">
+            <button class="btn btn-secondary" data-pd-edit><i data-lucide="edit-3"></i> Editar pendiente</button>
+            ${!cerrado ? `<button class="btn btn-success" data-pd-close-pend><i data-lucide="check"></i> Cerrar pendiente</button>` : `<button class="btn btn-secondary" data-pd-reopen><i data-lucide="rotate-ccw"></i> Reabrir</button>`}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modals').insertAdjacentHTML('beforeend', html);
+
+  const reopenSelf = ()=>{
+    const m = document.getElementById(id);
+    if (m) m.remove();
+    setTimeout(()=> openPendienteDetalle(key, pid), 0);
+  };
+
+  const modal = document.getElementById(id);
+  const addT = modal.querySelector('[data-pd-add-tarea]');
+  if (addT) addT.addEventListener('click', ()=>{
+    document.getElementById(id).remove();
+    addTarea(key, pid);
+    /* addTarea abre openTextModal; al cerrar, no hay callback claro para volver al detalle.
+       Decisión: el usuario abre detalle nuevamente si quiere. */
+  });
+  const addA = modal.querySelector('[data-pd-add-act]');
+  if (addA) addA.addEventListener('click', ()=>{
+    document.getElementById(id).remove();
+    openSeguimientoForm(key, pid);
+  });
+  modal.querySelectorAll('[data-pd-toggle-tarea]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      toggleTarea(key, pid, el.dataset.tid);
+      reopenSelf();
+    });
+  });
+  modal.querySelectorAll('[data-pd-del-tarea]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      if (!confirm('¿Eliminar esta tarea?')) return;
+      deleteTarea(key, pid, el.dataset.tid);
+      reopenSelf();
+    });
+  });
+  modal.querySelectorAll('[data-pd-del-act]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      if (!confirm('¿Eliminar este seguimiento?')) return;
+      deleteActualizacion(key, pid, el.dataset.aid);
+      reopenSelf();
+    });
+  });
+  const ed = modal.querySelector('[data-pd-edit]');
+  if (ed) ed.addEventListener('click', ()=>{
+    document.getElementById(id).remove();
+    openPendienteForm(key, pid);
+  });
+  const closeP = modal.querySelector('[data-pd-close-pend]');
+  if (closeP) closeP.addEventListener('click', ()=>{
+    if (!confirm('¿Cerrar este pendiente?')) return;
+    document.getElementById(id).remove();
+    cerrarPendiente(key, pid);
+  });
+  const reop = modal.querySelector('[data-pd-reopen]');
+  if (reop) reop.addEventListener('click', ()=>{
+    togglePendiente(key, pid);
+    reopenSelf();
+  });
+
+  lucide.createIcons();
 }
 
 function cerrarPendiente(key, pid){
@@ -6565,7 +6722,7 @@ function stopRecording(){
   const payload = {
     version: 1,
     app: 'Gestion MP 2026',
-    appVersion: 'v4.14',
+    appVersion: 'v4.15',
     startedAt: new Date(recState.startedAt).toISOString(),
     durationMs: dur,
     eventCount: recState.events.length,
