@@ -334,7 +334,7 @@
       <div class="sidebar-btn" data-view="agenda" title="Agenda"><i data-lucide="users"></i><span class="s-text">Agenda</span></div>
     </nav>
     <div class="p-3 text-xs text-slate-400 border-t border-slate-700 space-y-2 s-foot">
-      <div>v4.12 · datos locales</div>
+      <div>v4.13 · datos locales</div>
       <button onclick="openGasSettings()" class="sidebar-link" title="Configurar y sincronizar con Google Sheets">
         <span id="gas-status-dot" class="gas-dot off"></span><span>Google Sheets</span>
       </button>
@@ -1376,6 +1376,7 @@ function getPendienteEstado(e){
   const today = todayISO();
   if (ps.some(p => isVencido(p, today))) return 'vencido';
   if (ps.some(p => p.estado==='abierto')) return 'abierto';
+  if (ps.some(p => p.estado==='detenido')) return 'detenido';
   return 'cerrado';
 }
 function estadoEquipoBadge(s){
@@ -1394,7 +1395,8 @@ function diasAlertBadge_(dias){
 function estadoPendienteBadge(s, count){
   if (!s) return '<span class="text-slate-400 text-xs">—</span>';
   if (s === 'vencido') return `<span class="badge bg-red-100 text-red-800" title="${count} pendiente(s)">Vencido</span>`;
-  if (s === 'abierto') return `<span class="badge bg-amber-100 text-amber-800" title="${count} pendiente(s)">Abierto</span>`;
+  if (s === 'abierto') return `<span class="badge bg-amber-100 text-amber-800" title="${count} pendiente(s)">En gestión</span>`;
+  if (s === 'detenido') return `<span class="badge bg-slate-300 text-slate-800" title="${count} pendiente(s)">Detenido</span>`;
   if (s === 'cerrado') return `<span class="badge bg-slate-200 text-slate-700" title="${count} pendiente(s)">Cerrado</span>`;
   return '<span class="text-slate-400 text-xs">—</span>';
 }
@@ -1458,7 +1460,8 @@ function renderEquipos(){
       <select id="f-estadoPe" class="input w-auto" style="max-width:200px;">
         <option value="">Estado pendiente: todos</option>
         <option value="vencido">Vencido</option>
-        <option value="abierto">Abierto</option>
+        <option value="abierto">En gestión</option>
+        <option value="detenido">Detenido</option>
         <option value="cerrado">Cerrado</option>
         <option value="sin">Sin pendientes</option>
       </select>
@@ -1793,6 +1796,7 @@ function pendienteCardHTML(p){
   const today = todayISO();
   const cerrado = p.estado === 'cerrado';
   const creado = p.estado === 'creado';
+  const detenido = p.estado === 'detenido';
   const vencido = isVencido(p, today);
   const recVencido = isRecordatorioVencido(p, today);
   const dias = p.fechaCompromiso ? diffDays(p.fechaCompromiso, today) : null;
@@ -1801,6 +1805,8 @@ function pendienteCardHTML(p){
     diasLbl = `<span class="pill bg-green-100 text-green-800">Cerrado${p.fechaCierre?' '+fmtDateInput(p.fechaCierre):''}</span>`;
   } else if (creado){
     diasLbl = `<span class="pill bg-indigo-100 text-indigo-800"><i data-lucide="hourglass"></i> Por iniciar</span>`;
+  } else if (detenido){
+    diasLbl = `<span class="pill bg-slate-300 text-slate-800"><i data-lucide="pause"></i> Detenido</span>`;
   } else if (dias !== null){
     if (dias < 0) diasLbl = `<span class="pill bg-red-100 text-red-800">Vencido hace ${-dias} d</span>`;
     else if (dias === 0) diasLbl = `<span class="pill bg-amber-100 text-amber-800">Hoy</span>`;
@@ -1825,6 +1831,7 @@ function pendienteCardHTML(p){
     : `${escapeHtml(p.eq?.equipo || '(sin equipo)')} · ${escapeHtml(p.eq?.inv || p.eq?.id || p.key)}`;
   const cardBg = cerrado ? 'border-slate-200 bg-slate-50'
                 : creado ? 'border-indigo-300 bg-indigo-50/60'
+                : detenido ? 'border-slate-400 bg-slate-100'
                 : (vencido || recVencido ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white');
   const descCls = cerrado ? 'line-through text-slate-500' : 'text-slate-800';
   /* Última acción */
@@ -1872,9 +1879,13 @@ function pendienteCardHTML(p){
           : creado
             ? `<button class="btn btn-primary btn-xs" title="Iniciar este pendiente (compromiso a 7 días)" data-pend-start data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="play"></i> Iniciar</button>
                <button class="btn btn-secondary btn-xs" title="Editar antes de iniciar" data-edit-pend data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="edit-3"></i> Editar</button>`
-            : `<button class="btn btn-primary btn-xs" title="Registrar un seguimiento (delegación, recordatorio, avance, cierre)" data-pend-update data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="message-square-plus"></i> Seguimiento</button>
-             <button class="btn btn-secondary btn-xs" title="Postergar compromiso 1 día" data-pend-snooze="1" data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="clock"></i> +1d</button>
-             <button class="btn btn-secondary btn-xs" title="Postergar compromiso 7 días" data-pend-snooze="7" data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="clock"></i> +7d</button>`}
+            : detenido
+              ? `<button class="btn btn-primary btn-xs" title="Reanudar la gestión de este pendiente" data-pend-resume data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="play"></i> Reanudar</button>
+                 <button class="btn btn-secondary btn-xs" title="Editar" data-edit-pend data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="edit-3"></i> Editar</button>`
+              : `<button class="btn btn-primary btn-xs" title="Registrar un seguimiento (delegación, recordatorio, avance, cierre)" data-pend-update data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="message-square-plus"></i> Seguimiento</button>
+                 <button class="btn btn-secondary btn-xs" title="Detener (pausar por circunstancia externa: espera repuesto, paciente conectado, etc.)" data-pend-stop data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="pause"></i> Detener</button>
+                 <button class="btn btn-secondary btn-xs" title="Postergar compromiso 1 día" data-pend-snooze="1" data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="clock"></i> +1d</button>
+                 <button class="btn btn-secondary btn-xs" title="Postergar compromiso 7 días" data-pend-snooze="7" data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="clock"></i> +7d</button>`}
       </div>
     </div>
   </div>`;
@@ -1901,6 +1912,53 @@ function bindPendActions(){
   document.querySelectorAll('[data-pend-start]').forEach(el=>{
     el.addEventListener('click', ()=> startPendiente(el.dataset.key, el.dataset.pid));
   });
+  document.querySelectorAll('[data-pend-stop]').forEach(el=>{
+    el.addEventListener('click', ()=> detenerPendiente(el.dataset.key, el.dataset.pid));
+  });
+  document.querySelectorAll('[data-pend-resume]').forEach(el=>{
+    el.addEventListener('click', ()=> reanudarPendiente(el.dataset.key, el.dataset.pid));
+  });
+}
+
+function detenerPendiente(key, pid){
+  const p = findPendiente(key, pid); if (!p) return;
+  if (p.estado !== 'abierto') return;
+  const razon = prompt('¿Por qué se detiene? (opcional · ej: espera repuesto, paciente conectado, externo no responde)', '');
+  if (razon === null) return;
+  p.estado = 'detenido';
+  p.actualizaciones = p.actualizaciones || [];
+  p.actualizaciones.push({
+    id: uid(),
+    fecha: todayISO(),
+    tipo: 'bloqueo',
+    texto: 'Detenido' + (razon.trim() ? ': ' + razon.trim() : '')
+  });
+  savePersisted();
+  refreshActiveView();
+  toast('Pendiente detenido', 'ok', {
+    label: 'Ver detenidos',
+    fn: ()=>{
+      pendFilters.estado = 'detenido';
+      pendFilters.periodo = 'todos';
+      selectView('pendientes');
+    }
+  });
+}
+
+function reanudarPendiente(key, pid){
+  const p = findPendiente(key, pid); if (!p) return;
+  if (p.estado !== 'detenido') return;
+  p.estado = 'abierto';
+  p.actualizaciones = p.actualizaciones || [];
+  p.actualizaciones.push({
+    id: uid(),
+    fecha: todayISO(),
+    tipo: 'avance',
+    texto: 'Reanudado'
+  });
+  savePersisted();
+  refreshActiveView();
+  toast('Pendiente reanudado · pasa a "En gestión"', 'ok');
 }
 function bindLogActions(){
   document.querySelectorAll('[data-log-edit]').forEach(el=>{
@@ -2018,7 +2076,8 @@ function renderPendientes(){
         <select id="p-estado" class="input w-auto">
           <option value="todos">Todos los estados</option>
           <option value="creado">Por iniciar</option>
-          <option value="abierto">Abiertos</option>
+          <option value="abierto">En gestión</option>
+          <option value="detenido">Detenidos</option>
           <option value="cerrado">Cerrados</option>
         </select>
         <select id="p-ejecutor" class="input w-auto">
@@ -2048,7 +2107,8 @@ function renderPendientes(){
     { id:'hoy',    label:'Hoy',           icon:'calendar-check' },
     { id:'semana', label:'Esta semana',   icon:'calendar-days' },
     { id:'mes',    label:'Este mes',      icon:'calendar' },
-    { id:'sin',    label:'Sin compromiso',icon:'help-circle' }
+    { id:'sin',    label:'Sin compromiso',icon:'help-circle' },
+    { id:'detenidos', label:'Detenidos',  icon:'pause' }
   ];
 
   function renderChips(){
@@ -2062,7 +2122,8 @@ function renderPendientes(){
       hoy:      flatPendientes(p=>estadoMatch(p) && p.fechaCompromiso===today).length,
       semana:   flatPendientes(p=>{ if (!estadoMatch(p) || !p.fechaCompromiso) return false; return p.fechaCompromiso>=today && p.fechaCompromiso<=addDaysISO(today,7); }).length,
       mes:      flatPendientes(p=>{ if (!estadoMatch(p) || !p.fechaCompromiso) return false; return p.fechaCompromiso>=today && p.fechaCompromiso<=addDaysISO(today,30); }).length,
-      sin:      flatPendientes(p=>estadoMatch(p) && !p.fechaCompromiso).length
+      sin:      flatPendientes(p=>estadoMatch(p) && !p.fechaCompromiso).length,
+      detenidos: flatPendientes(p=>p.estado==='detenido').length
     };
     document.getElementById('p-chips').innerHTML = periodos.map(pi=>`
       <button class="chip ${pendFilters.periodo===pi.id?'active':''}" data-period="${pi.id}">
@@ -2085,11 +2146,13 @@ function renderPendientes(){
       case 'semana':   return p.estado==='abierto' && p.fechaCompromiso && p.fechaCompromiso>=today && p.fechaCompromiso<=addDaysISO(today,7);
       case 'mes':      return p.estado==='abierto' && p.fechaCompromiso && p.fechaCompromiso>=today && p.fechaCompromiso<=addDaysISO(today,30);
       case 'sin':      return p.estado==='abierto' && !p.fechaCompromiso;
+      case 'detenidos': return p.estado==='detenido';
       default:         return true;
     }
   }
   function bucketKey(p, today){
     if (p.estado === 'creado') return 'Por iniciar';
+    if (p.estado === 'detenido') return 'Detenidos';
     if (!p.fechaCompromiso) return 'Sin compromiso';
     if (p.fechaCompromiso < today) return 'Vencidos';
     if (p.fechaCompromiso === today) return 'Hoy';
@@ -2098,7 +2161,7 @@ function renderPendientes(){
     if (d <= 30) return 'Este mes';
     return 'Más adelante';
   }
-  const BUCKET_ORDER = ['Por iniciar','Vencidos','Hoy','Próximos 7 días','Este mes','Más adelante','Sin compromiso'];
+  const BUCKET_ORDER = ['Por iniciar','Vencidos','Hoy','Próximos 7 días','Este mes','Más adelante','Sin compromiso','Detenidos'];
 
   function update(){
     const today = todayISO();
@@ -2144,9 +2207,15 @@ function renderPendientes(){
       (groups[k] = groups[k] || []).push(p);
     });
     list.innerHTML = BUCKET_ORDER.filter(k=>groups[k]).map(k=>{
-      const color = k==='Por iniciar'?'indigo': k==='Vencidos'?'red': k==='Hoy'?'amber': (k==='Próximos 7 días'||k==='Este mes')?'blue':'gray';
+      const color = k==='Por iniciar'?'indigo'
+                  : k==='Vencidos'?'red'
+                  : k==='Hoy'?'amber'
+                  : (k==='Próximos 7 días'||k==='Este mes')?'blue'
+                  : k==='Detenidos'?'gray'
+                  : 'gray';
+      const icon = k==='Detenidos' ? 'pause' : 'folder';
       return `<div>
-        <div class="section-title ${color}"><i data-lucide="folder"></i> ${escapeHtml(k)} <span class="count">${groups[k].length}</span></div>
+        <div class="section-title ${color}"><i data-lucide="${icon}"></i> ${escapeHtml(k)} <span class="count">${groups[k].length}</span></div>
         <div class="space-y-2">${groups[k].map(pendienteCardHTML).join('')}</div>
       </div>`;
     }).join('');
@@ -2301,11 +2370,7 @@ function togglePendiente(key, pid){
   const arr = state.pendientes[key] || [];
   const it = arr.find(p=>p.id===pid);
   if (!it) return;
-  if (it.estado === 'abierto'){
-    it.estado = 'cerrado';
-    it.fechaCierre = todayISO();
-  } else if (it.estado === 'creado'){
-    /* Si nunca se inició, marcar cerrado directamente (caso raro: rechazar) */
+  if (it.estado === 'abierto' || it.estado === 'detenido' || it.estado === 'creado'){
     it.estado = 'cerrado';
     it.fechaCierre = todayISO();
   } else {
@@ -2836,7 +2901,7 @@ function renderEquipoModal(){
                     <input type="checkbox" ${p.estado==='cerrado'?'checked':''} data-pend-toggle data-key="${escapeHtml(e.key)}" data-pid="${escapeHtml(p.id)}" class="mt-1" />
                     <div class="flex-1">
                       <div class="text-sm ${p.estado==='cerrado'?'line-through text-slate-500':''}">${escapeHtml(p.descripcion)}</div>
-                      <div class="text-xs text-slate-500">Creado ${fmtDateInput(p.fecha)} · Compromiso ${p.fechaCompromiso?fmtDateInput(p.fechaCompromiso):'—'} · Ejecutor ${escapeHtml(p.ejecutor||'—')} ${p.estado==='cerrado'&&p.fechaCierre?'· <span class="text-slate-600">Cerrado '+fmtDateInput(p.fechaCierre)+'</span>':''} ${venc?'· <span class="text-red-600 font-medium">Vencido</span>':''}</div>
+                      <div class="text-xs text-slate-500">Creado ${fmtDateInput(p.fecha)} · Compromiso ${p.fechaCompromiso?fmtDateInput(p.fechaCompromiso):'—'} · Ejecutor ${escapeHtml(p.ejecutor||'—')} ${p.estado==='cerrado'&&p.fechaCierre?'· <span class="text-slate-600">Cerrado '+fmtDateInput(p.fechaCierre)+'</span>':''} ${p.estado==='detenido'?'· <span class="text-slate-700 font-medium">Detenido</span>':''} ${p.estado==='abierto'&&venc?'· <span class="text-red-600 font-medium">Vencido</span>':''}</div>
                       ${(p.archivos&&p.archivos.length)?`<div class="mt-1 flex flex-wrap gap-1">${p.archivos.map(f=>`<a href="${escapeHtml(f.url||'#')}" target="_blank" rel="noopener" class="pill bg-slate-100 text-slate-700 hover:bg-slate-200" title="${escapeHtml(f.nombre)} (${fmtBytes_(f.size)})"><i data-lucide="${fileIconFor_(f.mime, f.nombre)}"></i> ${escapeHtml(f.nombre.length>30?f.nombre.slice(0,30)+'…':f.nombre)}</a>`).join('')}</div>`:''}
                     </div>
                     <div class="flex gap-1">
@@ -6434,7 +6499,7 @@ function stopRecording(){
   const payload = {
     version: 1,
     app: 'Gestion MP 2026',
-    appVersion: 'v4.12',
+    appVersion: 'v4.13',
     startedAt: new Date(recState.startedAt).toISOString(),
     durationMs: dur,
     eventCount: recState.events.length,
