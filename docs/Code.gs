@@ -185,7 +185,7 @@ function _doSetup_(ss) {
     sh.setFrozenRows(1);
   });
   setMeta_('setupAt', new Date().toISOString());
-  setMeta_('version', '3.13');
+  setMeta_('version', '3.14');
 }
 
 /**
@@ -233,7 +233,7 @@ function migrate() {
   });
   /* Ocultar hojas técnicas también al migrar */
   hideSystemSheets_();
-  setMeta_('version', '3.13');
+  setMeta_('version', '3.14');
   Logger.log('Migrate completo. ' + creadas + ' hoja(s) nueva(s), ' + colsAgregadas + ' columna(s) agregada(s). Hojas técnicas ocultadas.');
   return { ok: true, created: creadas, columnsAdded: colsAgregadas };
 }
@@ -572,7 +572,7 @@ function replaceAll_(payload) {
       if (ev.creadoEn) { try { creadoEn = new Date(ev.creadoEn); } catch(_){ creadoEn = ev.creadoEn; } }
       else if (ev.fecha) { try { creadoEn = new Date(ev.fecha); } catch(_){ creadoEn = ev.fecha; } }
       rows.push([
-        ev.id ? String(ev.id) : '',                  /* ID Evento (ID interno estable) */
+        ev.id ? 'EV_' + String(ev.id) : '',          /* ID Evento (prefijo EV_ + ID interno) */
         nInv, eqInfo.equipo||'', eqInfo.servicio||'', eqInfo.fam||'',
         tipoLbl, ev.fecha||'', creadoEn,             /* Fecha + Fecha registro */
         ev.resultado||'', ev.ejecutor||'', ev.estado||'',
@@ -623,11 +623,11 @@ function replaceAll_(payload) {
       }).join('\n');
       const adjuntos = p.archivos || [];
       rows.push([
-        p.id ? String(p.id) : '',                    /* ID Pendiente (ID interno estable) */
+        p.id ? 'PEND_' + String(p.id) : '',          /* ID Pendiente (prefijo PEND_ + ID interno) */
         nInv, eqInfo.equipo||'', eqInfo.servicio||'',
         p.descripcion||'', p.fecha||'', p.fechaCompromiso||'', p.proximoRecordatorio||'', p.fechaCierre||'',
         p.ejecutor||'', p.estado||'', tareasTxt, segsTxt,
-        p.eventoId ? String(p.eventoId) : '',        /* ID Evento asociado (ID interno) */
+        p.eventoId ? 'EV_' + String(p.eventoId) : '',/* ID Evento asociado (prefijo EV_ + ID interno) */
         '', now
       ]);
       if (adjuntos.length){
@@ -652,8 +652,8 @@ function replaceAll_(payload) {
       flatP.forEach(({ p, eqInfo, nInv }) => {
         (p.tareas||[]).forEach(t => {
           tRows.push([
-            t.id ? 'TAR_' + String(t.id) : '',
-            p.id  ? String(p.id) : '',
+            t.id ? 'TAR_'  + String(t.id) : '',
+            p.id ? 'PEND_' + String(p.id) : '',
             nInv,
             eqInfo.equipo || '',
             t.descripcion || '',

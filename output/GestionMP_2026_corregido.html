@@ -334,7 +334,7 @@
       <div class="sidebar-btn" data-view="agenda" title="Agenda"><i data-lucide="users"></i><span class="s-text">Agenda</span></div>
     </nav>
     <div class="p-3 text-xs text-slate-400 border-t border-slate-700 space-y-2 s-foot">
-      <div>v4.10 · datos locales</div>
+      <div>v4.11 · datos locales</div>
       <button onclick="openGasSettings()" class="sidebar-link" title="Configurar y sincronizar con Google Sheets">
         <span id="gas-status-dot" class="gas-dot off"></span><span>Google Sheets</span>
       </button>
@@ -664,6 +664,15 @@ function allPendienteIds_(){
   Object.values(state.pendientes).forEach(arr=> (arr||[]).forEach(p=> s.add(String(p.id))));
   return s;
 }
+function allTareaIds_(){
+  const s = new Set();
+  Object.values(state.pendientes).forEach(arr=>
+    (arr||[]).forEach(p=>
+      (p.tareas||[]).forEach(t=> { if (t && t.id) s.add(String(t.id)); })
+    )
+  );
+  return s;
+}
 function toast(msg, kind='ok', action){
   const wrap = document.getElementById('toasts');
   const div = document.createElement('div');
@@ -728,6 +737,7 @@ function dateShortcuts(inputId, mode){
   const items = mode === 'fwd'
     ? [
         { label:'Hoy',    days: 0,  title:'Fijar a hoy' },
+        { label:'+1 día', days: 1,  title:'Sumar 1 día al valor actual' },
         { label:'+1 sem', days: 7,  title:'Sumar 7 días al valor actual' },
         { label:'+1 mes', days: 30, title:'Sumar 30 días al valor actual' }
       ]
@@ -2402,7 +2412,21 @@ function crearArchivarRapido_(){
     inv: '', equipo: '', servicio: ''
   });
   savePersisted();
-  refreshActiveView();
+  /* Filtrar la lista a los "Archivar" para que el usuario vea el recién
+     creado en pantalla. El comentario v4.10 "no hace nada el botón
+     archivar" se debía a que el toast desaparecía y el nuevo pendiente
+     quedaba mezclado entre decenas. */
+  pendFilters.q = 'Archivar';
+  pendFilters.estado = 'todos';
+  pendFilters.periodo = 'todos';
+  pendFilters.servicio = '';
+  pendFilters.ejecutor = '';
+  pendFilters.mio = false;
+  if (document.querySelector('.sidebar-btn.active')?.dataset.view !== 'pendientes'){
+    selectView('pendientes');
+  } else {
+    renderPendientes();
+  }
   toast(`Pendiente "Archivar" creado para ${mio}`, 'ok');
 }
 
@@ -2872,7 +2896,7 @@ function addTarea(key, pid){
   openTextModal('Nueva tarea','Descripción de la tarea', '', (desc)=>{
     const p = findPendiente(key, pid); if (!p) return;
     p.tareas = p.tareas || [];
-    p.tareas.push({ id: uid(), descripcion: desc.trim(), estado: 'abierto', fecha: todayISO() });
+    p.tareas.push({ id: timestampUid(allTareaIds_()), descripcion: desc.trim(), estado: 'abierto', fecha: todayISO() });
     savePersisted();
     refreshActiveView();
   });
@@ -5494,13 +5518,18 @@ function _parseSegsTxt_(txt){
     return { id:'s'+Math.random().toString(36).slice(2,8), fecha:m[1], tipo, contactadoA:contactado, texto:m[4]||'' };
   }).filter(Boolean);
 }
+function _stripIdPrefix_(s, prefix){
+  if (s == null) return '';
+  const str = String(s);
+  return str.indexOf(prefix) === 0 ? str.slice(prefix.length) : str;
+}
 function _eventoFromSheet_(o){
-  /* Acepta 'ID Evento' (v3.12+) o 'ID' (legacy). El id correlativo se vuelve
-     string en memoria; sólo importa la unicidad dentro de la sesión. */
+  /* Acepta 'ID Evento' (v3.12+) o 'ID' (legacy). El id se desprefija
+     'EV_' (v3.14+) para mantener consistencia con el ID interno local. */
   const rawId = o['ID Evento'] != null ? o['ID Evento'] : o['ID'];
   const creado = o['Fecha registro'] || null;
   return {
-    id: rawId != null && rawId !== '' ? String(rawId) : '',
+    id: rawId != null && rawId !== '' ? _stripIdPrefix_(rawId, 'EV_') : '',
     inv: o['N° Inventario'] || '',
     equipo: o['Equipo'] || '',
     servicio: o['Servicio'] || '',
@@ -5524,7 +5553,7 @@ function _eventoFromSheet_(o){
 function _pendienteFromSheet_(o){
   const rawId = o['ID Pendiente'] != null ? o['ID Pendiente'] : o['ID'];
   const out = {
-    id: rawId != null && rawId !== '' ? String(rawId) : '',
+    id: rawId != null && rawId !== '' ? _stripIdPrefix_(rawId, 'PEND_') : '',
     inv: o['N° Inventario'] || '',
     equipo: o['Equipo'] || '',
     servicio: o['Servicio'] || '',
@@ -5540,7 +5569,7 @@ function _pendienteFromSheet_(o){
     archivos: []
   };
   const evId = o['ID Evento asociado'];
-  if (evId != null && evId !== '') out.eventoId = String(evId);
+  if (evId != null && evId !== '') out.eventoId = _stripIdPrefix_(evId, 'EV_');
   return out;
 }
 function _remapByKey_(raw, transformer){
@@ -6368,7 +6397,7 @@ function stopRecording(){
   const payload = {
     version: 1,
     app: 'Gestion MP 2026',
-    appVersion: 'v4.10',
+    appVersion: 'v4.11',
     startedAt: new Date(recState.startedAt).toISOString(),
     durationMs: dur,
     eventCount: recState.events.length,
