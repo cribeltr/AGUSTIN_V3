@@ -334,7 +334,7 @@
       <div class="sidebar-btn" data-view="agenda" title="Agenda"><i data-lucide="users"></i><span class="s-text">Agenda</span></div>
     </nav>
     <div class="p-3 text-xs text-slate-400 border-t border-slate-700 space-y-2 s-foot">
-      <div>v4.13 · datos locales</div>
+      <div>v4.14 · datos locales</div>
       <button onclick="openGasSettings()" class="sidebar-link" title="Configurar y sincronizar con Google Sheets">
         <span id="gas-status-dot" class="gas-dot off"></span><span>Google Sheets</span>
       </button>
@@ -1856,7 +1856,6 @@ function pendienteCardHTML(p){
   }
   return `<div class="border ${cardBg} rounded p-3">
     <div class="flex items-start gap-2">
-      <input type="checkbox" ${cerrado?'checked':''} class="mt-1" data-pend-toggle data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}" />
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap mb-1">
           ${esGeneral
@@ -1878,11 +1877,14 @@ function pendienteCardHTML(p){
           ? `<button class="btn btn-secondary btn-xs" title="Reabrir" data-pend-toggle-btn data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="rotate-ccw"></i> Reabrir</button>`
           : creado
             ? `<button class="btn btn-primary btn-xs" title="Iniciar este pendiente (compromiso a 7 días)" data-pend-start data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="play"></i> Iniciar</button>
-               <button class="btn btn-secondary btn-xs" title="Editar antes de iniciar" data-edit-pend data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="edit-3"></i> Editar</button>`
+               <button class="btn btn-secondary btn-xs" title="Editar antes de iniciar" data-edit-pend data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="edit-3"></i> Editar</button>
+               <button class="btn btn-secondary btn-xs" title="Cerrar este pendiente" data-pend-close data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="check"></i> Cerrar</button>`
             : detenido
               ? `<button class="btn btn-primary btn-xs" title="Reanudar la gestión de este pendiente" data-pend-resume data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="play"></i> Reanudar</button>
-                 <button class="btn btn-secondary btn-xs" title="Editar" data-edit-pend data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="edit-3"></i> Editar</button>`
+                 <button class="btn btn-secondary btn-xs" title="Editar" data-edit-pend data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="edit-3"></i> Editar</button>
+                 <button class="btn btn-secondary btn-xs" title="Cerrar este pendiente" data-pend-close data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="check"></i> Cerrar</button>`
               : `<button class="btn btn-primary btn-xs" title="Registrar un seguimiento (delegación, recordatorio, avance, cierre)" data-pend-update data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="message-square-plus"></i> Seguimiento</button>
+                 <button class="btn btn-success btn-xs" title="Cerrar este pendiente (marcarlo como terminado)" data-pend-close data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="check"></i> Cerrar</button>
                  <button class="btn btn-secondary btn-xs" title="Detener (pausar por circunstancia externa: espera repuesto, paciente conectado, etc.)" data-pend-stop data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="pause"></i> Detener</button>
                  <button class="btn btn-secondary btn-xs" title="Postergar compromiso 1 día" data-pend-snooze="1" data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="clock"></i> +1d</button>
                  <button class="btn btn-secondary btn-xs" title="Postergar compromiso 7 días" data-pend-snooze="7" data-key="${escapeHtml(p.key)}" data-pid="${escapeHtml(p.id)}"><i data-lucide="clock"></i> +7d</button>`}
@@ -1917,6 +1919,26 @@ function bindPendActions(){
   });
   document.querySelectorAll('[data-pend-resume]').forEach(el=>{
     el.addEventListener('click', ()=> reanudarPendiente(el.dataset.key, el.dataset.pid));
+  });
+  document.querySelectorAll('[data-pend-close]').forEach(el=>{
+    el.addEventListener('click', ()=> cerrarPendiente(el.dataset.key, el.dataset.pid));
+  });
+}
+
+function cerrarPendiente(key, pid){
+  const p = findPendiente(key, pid); if (!p) return;
+  if (p.estado === 'cerrado') return;
+  p.estado = 'cerrado';
+  p.fechaCierre = todayISO();
+  savePersisted();
+  refreshActiveView();
+  toast('Pendiente cerrado', 'ok', {
+    label: 'Ver cerrados',
+    fn: ()=>{
+      pendFilters.estado = 'cerrado';
+      pendFilters.periodo = 'todos';
+      selectView('pendientes');
+    }
   });
 }
 
@@ -2068,18 +2090,12 @@ function renderPendientes(){
   const root = document.getElementById('view-pendientes');
   root.innerHTML = `
     <div class="bg-white border-b border-slate-200 px-4 py-3 flex flex-col gap-2 flex-shrink-0">
+      <div id="p-state-tabs" class="flex flex-wrap gap-2"></div>
       <div class="flex flex-wrap gap-2 items-center">
         <div class="relative flex-1 min-w-[220px] max-w-md">
           <i data-lucide="search" class="absolute left-2 top-2.5 text-slate-400"></i>
           <input id="p-q" class="input pl-8" placeholder="Buscar por inventario, serie, equipo o descripción..." />
         </div>
-        <select id="p-estado" class="input w-auto">
-          <option value="todos">Todos los estados</option>
-          <option value="creado">Por iniciar</option>
-          <option value="abierto">En gestión</option>
-          <option value="detenido">Detenidos</option>
-          <option value="cerrado">Cerrados</option>
-        </select>
         <select id="p-ejecutor" class="input w-auto">
           <option value="">Todos los ejecutores</option>
           ${EJECUTORES.map(e=>`<option>${escapeHtml(e)}</option>`).join('')}
@@ -2223,8 +2239,39 @@ function renderPendientes(){
     lucide.createIcons();
   }
 
+  function renderStateTabs(){
+    const tabsCfg = [
+      { id:'todos',    label:'Todos',       color:'slate'  },
+      { id:'creado',   label:'Por iniciar', color:'indigo' },
+      { id:'abierto',  label:'En gestión',  color:'amber'  },
+      { id:'detenido', label:'Detenidos',   color:'slate'  },
+      { id:'cerrado',  label:'Cerrados',    color:'green'  }
+    ];
+    const counts = {
+      todos:    flatPendientes().length,
+      creado:   flatPendientes(p=>p.estado==='creado').length,
+      abierto:  flatPendientes(p=>p.estado==='abierto').length,
+      detenido: flatPendientes(p=>p.estado==='detenido').length,
+      cerrado:  flatPendientes(p=>p.estado==='cerrado').length
+    };
+    const tabsEl = document.getElementById('p-state-tabs');
+    if (!tabsEl) return;
+    tabsEl.innerHTML = tabsCfg.map(t=>{
+      const active = pendFilters.estado === t.id;
+      return `<button class="chip ${active?'active':''}" data-state-tab="${t.id}" title="Filtrar por estado ${escapeHtml(t.label)}">
+        ${escapeHtml(t.label)} <span class="chip-count">${counts[t.id]||0}</span>
+      </button>`;
+    }).join('');
+    tabsEl.querySelectorAll('[data-state-tab]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        pendFilters.estado = b.dataset.stateTab;
+        renderStateTabs();
+        renderChips();
+        update();
+      });
+    });
+  }
   document.getElementById('p-q').addEventListener('input', debounce(e=>{ pendFilters.q = e.target.value; update(); }, 180));
-  document.getElementById('p-estado').addEventListener('change', e=>{ pendFilters.estado = e.target.value; renderChips(); update(); });
   document.getElementById('p-ejecutor').addEventListener('change', e=>{ pendFilters.ejecutor = e.target.value; update(); });
   document.getElementById('p-clear').addEventListener('click', ()=>{
     pendFilters.q=''; pendFilters.estado='todos'; pendFilters.ejecutor=''; pendFilters.servicio=''; pendFilters.periodo='todos'; pendFilters.mio=false;
@@ -2246,7 +2293,6 @@ function renderPendientes(){
   });
 
   document.getElementById('p-q').value = pendFilters.q;
-  document.getElementById('p-estado').value = pendFilters.estado;
   /* El select de ejecutor sólo refleja valores estándar; los marcadores especiales se muestran en el banner */
   document.getElementById('p-ejecutor').value = (pendFilters.ejecutor && pendFilters.ejecutor.indexOf('__')!==0) ? pendFilters.ejecutor : '';
   /* Banner de pre-filtro (servicio/ejecutor especial desde tabla Hoy) */
@@ -2266,6 +2312,7 @@ function renderPendientes(){
       });
     }
   }
+  renderStateTabs();
   renderChips();
   update();
   renderSyncSection();
@@ -3589,6 +3636,14 @@ function openPendienteForm(key, editId, eventoId){
               <input type="date" id="p-rec" class="input" value="${escapeHtml(editing&&editing.proximoRecordatorio?editing.proximoRecordatorio:'')}">${dateShortcuts('p-rec','fwd')}
             </div>
           </div>
+          ${editing ? `<div><label class="text-xs font-medium text-slate-600">Estado del pendiente</label>
+            <select id="p-estado-form" class="input">
+              <option value="creado" ${editing.estado==='creado'?'selected':''}>Por iniciar</option>
+              <option value="abierto" ${editing.estado==='abierto'?'selected':''}>En gestión</option>
+              <option value="detenido" ${editing.estado==='detenido'?'selected':''}>Detenido</option>
+              <option value="cerrado" ${editing.estado==='cerrado'?'selected':''}>Cerrado</option>
+            </select>
+          </div>` : ''}
           ${renderArchivosSection_('pend-form', editing?.archivos || [])}
           <div class="flex justify-end gap-2 pt-2 border-t">
             <button type="button" class="btn btn-secondary" onclick="closeForm()">Cancelar</button>
@@ -3638,6 +3693,17 @@ function savePendiente(key, editId){
     p.equipo   = p.equipo   || eqLookup.equipo   || '';
     p.servicio = p.servicio || eqLookup.servicio || '';
     /* eventoId no se sobrescribe en edición (preservar el vínculo existente) */
+    /* Estado: si el form lo incluye y cambió, aplicarlo y ajustar fechaCierre. */
+    const estadoEl = document.getElementById('p-estado-form');
+    if (estadoEl && estadoEl.value && estadoEl.value !== p.estado){
+      const newEstado = estadoEl.value;
+      p.estado = newEstado;
+      if (newEstado === 'cerrado'){
+        if (!p.fechaCierre) p.fechaCierre = todayISO();
+      } else {
+        delete p.fechaCierre;
+      }
+    }
   } else {
     const p = {
       id: preId || timestampUid(allPendienteIds_()), descripcion: desc, fecha, fechaCompromiso: comp, ejecutor: ejec,
@@ -6499,7 +6565,7 @@ function stopRecording(){
   const payload = {
     version: 1,
     app: 'Gestion MP 2026',
-    appVersion: 'v4.13',
+    appVersion: 'v4.14',
     startedAt: new Date(recState.startedAt).toISOString(),
     durationMs: dur,
     eventCount: recState.events.length,
