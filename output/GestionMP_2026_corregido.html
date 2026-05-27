@@ -334,7 +334,7 @@
       <div class="sidebar-btn" data-view="agenda" title="Agenda"><i data-lucide="users"></i><span class="s-text">Agenda</span></div>
     </nav>
     <div class="p-3 text-xs text-slate-400 border-t border-slate-700 space-y-2 s-foot">
-      <div>v4.9 · datos locales</div>
+      <div>v4.10 · datos locales</div>
       <button onclick="openGasSettings()" class="sidebar-link" title="Configurar y sincronizar con Google Sheets">
         <span id="gas-status-dot" class="gas-dot off"></span><span>Google Sheets</span>
       </button>
@@ -2295,13 +2295,18 @@ function startPendiente(key, pid){
   toast('Pendiente iniciado · compromiso a 7 días', 'ok');
 }
 
-/* Plantilla rápida ligada a un evento recién guardado: crea un pendiente
-   "Pendiente de ingresar a carpeta" en el equipo del evento, asignado al
-   usuario actual con compromiso hoy y eventoId ligado. Se ofrece como
-   botón secundario en el toast tras saveEvento — atiende al patrón de
-   "guardé evento → pendiente de archivo en carpeta" registrado en sesión. */
-function crearPendienteCarpetaParaEvento_(key, eventoId){
-  if (!key || !eventoId) return;
+/* Plantillas de pendientes recurrentes (hardcodeadas). Aparecen al
+   guardar un evento como acción secundaria del toast: el usuario elige
+   una y se crea un pendiente ligado al evento, asignado a él, con
+   compromiso hoy. Cubre los patrones detectados en sesiones reales. */
+const PLANTILLAS_PENDIENTE = [
+  'Pendiente de ingresar a carpeta',
+  'Pauta de monitoreo diario',
+  'Solicitar al servicio que haga la solicitud de trabajo'
+];
+
+function crearPendienteDesdeTemplate_(key, eventoId, descripcion){
+  if (!key || !descripcion) return;
   let mio = getMiUsuario();
   if (!mio){
     mio = promptMiUsuario();
@@ -2310,10 +2315,9 @@ function crearPendienteCarpetaParaEvento_(key, eventoId){
   const today = todayISO();
   const eqLookup = state.equipos.find(e=>e.key===key) || {};
   const nid = timestampUid(allPendienteIds_());
-  state.pendientes[key] = state.pendientes[key] || [];
-  state.pendientes[key].push({
+  const p = {
     id: nid,
-    descripcion: 'Pendiente de ingresar a carpeta',
+    descripcion,
     fecha: today,
     fechaCompromiso: today,
     proximoRecordatorio: null,
@@ -2321,12 +2325,56 @@ function crearPendienteCarpetaParaEvento_(key, eventoId){
     ejecutor: mio,
     estado: 'abierto',
     tareas: [], actualizaciones: [], archivos: [],
-    inv: eqLookup.inv || '', equipo: eqLookup.equipo || '', servicio: eqLookup.servicio || '',
-    eventoId
-  });
+    inv: eqLookup.inv || '', equipo: eqLookup.equipo || '', servicio: eqLookup.servicio || ''
+  };
+  if (eventoId) p.eventoId = eventoId;
+  state.pendientes[key] = state.pendientes[key] || [];
+  state.pendientes[key].push(p);
   savePersisted();
   refreshActiveView();
-  toast('Pendiente "Pendiente de ingresar a carpeta" creado', 'ok', { label: 'Ver equipo', fn: ()=> openEquipoModal(key) });
+  toast(`Pendiente "${descripcion}" creado`, 'ok', { label: 'Ver equipo', fn: ()=> openEquipoModal(key) });
+}
+
+function abrirSelectorPlantilla_(key, eventoId){
+  const id = 'tpl-' + uid();
+  const eqLookup = state.equipos.find(e=>e.key===key) || {};
+  const eqLbl = eqLookup.equipo ? `${escapeHtml(eqLookup.equipo)} · ${escapeHtml(eqLookup.inv||'')}` : escapeHtml(key||'');
+  const buttons = PLANTILLAS_PENDIENTE.map(d =>
+    `<button type="button" class="btn btn-secondary w-full justify-start" style="text-align:left;" data-tpl="${escapeHtml(d)}"><i data-lucide="clipboard-list"></i> ${escapeHtml(d)}</button>`
+  ).join('');
+  const html = `
+    <div class="modal-bg" id="${id}" onclick="if(event.target===this) document.getElementById('${id}').remove();">
+      <div class="modal modal-sm">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center gap-2">
+          <i data-lucide="clipboard-list" class="text-indigo-600"></i>
+          <div class="font-semibold flex-1">Crear pendiente desde plantilla</div>
+          <button class="btn btn-secondary" onclick="document.getElementById('${id}').remove();"><i data-lucide="x"></i></button>
+        </div>
+        <div class="p-5 space-y-2">
+          <div class="text-xs text-slate-500 mb-1">Equipo: <b>${eqLbl}</b></div>
+          <div class="text-xs text-slate-500 mb-2">Asignado a <b>${escapeHtml(getMiUsuario() || '(definir nombre primero)')}</b> · Compromiso hoy · Ligado al evento recién guardado</div>
+          <div class="flex flex-col gap-2">${buttons}</div>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modals').insertAdjacentHTML('beforeend', html);
+  document.querySelectorAll(`#${id} [data-tpl]`).forEach(btn => {
+    btn.addEventListener('click', () => {
+      const desc = btn.dataset.tpl;
+      document.getElementById(id).remove();
+      crearPendienteDesdeTemplate_(key, eventoId, desc);
+    });
+  });
+  lucide.createIcons();
+}
+
+/* Plantilla rápida ligada a un evento recién guardado: crea un pendiente
+   "Pendiente de ingresar a carpeta" en el equipo del evento, asignado al
+   usuario actual con compromiso hoy y eventoId ligado. Se ofrece como
+   botón secundario en el toast tras saveEvento — atiende al patrón de
+   "guardé evento → pendiente de archivo en carpeta" registrado en sesión. */
+function crearPendienteCarpetaParaEvento_(key, eventoId){
+  crearPendienteDesdeTemplate_(key, eventoId, 'Pendiente de ingresar a carpeta');
 }
 
 /* Plantilla rápida: crea una actividad general "Archivar" asignada
@@ -3333,12 +3381,12 @@ function saveEvento(key, editId, andNext){
   savePersisted();
   closeForm();
   const verRegistroAction = { label: 'Ver registro', fn: ()=> openEquipoModal(key) };
-  /* Plantilla rápida "Pendiente de ingresar a carpeta" ligada al evento.
+  /* Selector de plantillas recurrentes ligadas al evento recién guardado.
      Sólo en eventos nuevos (no edición) y excluyendo bucket 'general'. */
-  const carpetaAction = (!editId && key !== 'general')
-    ? { label: '+ Pendiente carpeta', fn: ()=> crearPendienteCarpetaParaEvento_(key, target.id) }
+  const plantillaAction = (!editId && key !== 'general')
+    ? { label: '+ Plantilla', fn: ()=> abrirSelectorPlantilla_(key, target.id) }
     : null;
-  const toastActions = carpetaAction ? [verRegistroAction, carpetaAction] : verRegistroAction;
+  const toastActions = plantillaAction ? [verRegistroAction, plantillaAction] : verRegistroAction;
   let msg;
   if (target.tipo === 'mp' && target.fecha && target.resultado){
     const mes = MONTHS_FULL[parseInt(target.fecha.slice(5,7),10)-1] || '';
@@ -6320,7 +6368,7 @@ function stopRecording(){
   const payload = {
     version: 1,
     app: 'Gestion MP 2026',
-    appVersion: 'v4.9',
+    appVersion: 'v4.10',
     startedAt: new Date(recState.startedAt).toISOString(),
     durationMs: dur,
     eventCount: recState.events.length,
