@@ -219,6 +219,97 @@
     /* Toolbars con wrap */
     .flex.flex-wrap.gap-2 { gap: 6px !important; }
   }
+
+  /* Panel flotante de comentarios de sesión */
+  .rec-panel {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    width: 360px;
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(15,23,42,0.20);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .rec-panel.hidden { display: none; }
+  .rec-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: #0f172a;
+    color: white;
+    cursor: move;
+    user-select: none;
+  }
+  .rec-panel-title { font-weight: 600; flex: 1; font-size: 13px; }
+  .rec-panel-count {
+    background: rgba(255,255,255,0.18);
+    color: white;
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .rec-panel-btn {
+    background: transparent; border: 0; color: white;
+    width: 24px; height: 24px;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; border-radius: 4px;
+  }
+  .rec-panel-btn:hover { background: rgba(255,255,255,0.15); }
+  .rec-panel-btn .chev-down { transition: transform 150ms; }
+  .rec-panel.collapsed .chev-down { transform: rotate(-180deg); }
+  .rec-panel-body {
+    padding: 10px;
+    background: white;
+    max-height: 260px;
+    transition: max-height 150ms ease, padding 150ms ease;
+    overflow: hidden;
+  }
+  .rec-panel.collapsed .rec-panel-body { max-height: 0; padding-top: 0; padding-bottom: 0; }
+  .rec-panel-body textarea {
+    width: 100%;
+    min-height: 70px;
+    resize: vertical;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    box-sizing: border-box;
+  }
+  .rec-panel-body textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+  .rec-panel-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .rec-panel-msg {
+    flex: 1;
+    font-size: 11px;
+    color: #15803d;
+    opacity: 0;
+    transition: opacity 200ms;
+  }
+  .rec-panel-msg.show { opacity: 1; }
+  @media (max-width: 768px) {
+    .rec-panel {
+      left: 0; right: 0; bottom: 0; top: auto;
+      width: auto;
+      border-radius: 10px 10px 0 0;
+    }
+    .rec-panel-header { cursor: default; }
+    .rec-panel-body { max-height: 220px; }
+    .rec-panel-body textarea { font-size: 16px; }
+  }
 </style>
 </head>
 <body class="bg-slate-100 text-slate-800">
@@ -243,7 +334,7 @@
       <div class="sidebar-btn" data-view="agenda" title="Agenda"><i data-lucide="users"></i><span class="s-text">Agenda</span></div>
     </nav>
     <div class="p-3 text-xs text-slate-400 border-t border-slate-700 space-y-2 s-foot">
-      <div>v4.7 · datos locales</div>
+      <div>v4.8 · datos locales</div>
       <button onclick="openGasSettings()" class="sidebar-link" title="Configurar y sincronizar con Google Sheets">
         <span id="gas-status-dot" class="gas-dot off"></span><span>Google Sheets</span>
       </button>
@@ -5354,8 +5445,17 @@ async function gasPull(url){
     state.eventos    = _remapByKey_(data.eventos,    _eventoFromSheet_);
     state.pendientes = _remapByKey_(data.pendientes, _pendienteFromSheet_);
     state.agenda     = data.agenda && typeof data.agenda === 'object'
-      ? { servicios: data.agenda.servicios || {}, centros: Array.isArray(data.agenda.centros) ? data.agenda.centros : [] }
-      : { servicios:{}, centros:[] };
+      ? {
+          servicios:  data.agenda.servicios || {},
+          centros:    Array.isArray(data.agenda.centros)    ? data.agenda.centros    : [],
+          directorio: Array.isArray(data.agenda.directorio) ? data.agenda.directorio : [],
+          empresas:   Array.isArray(data.agenda.empresas)   ? data.agenda.empresas   : []
+        }
+      : { servicios:{}, centros:[], directorio:[], empresas:[] };
+    Object.keys(state.agenda.servicios).forEach(k=>{
+      if (!state.agenda.servicios[k].otros) state.agenda.servicios[k].otros = [];
+    });
+    state.agenda.empresas.forEach(emp=>{ if (!Array.isArray(emp.contactos)) emp.contactos = []; });
     syncMarked = new Set(Array.isArray(data.syncMarked) ? data.syncMarked : []);
     /* persistir local, pero SIN re-disparar push automático */
     const savedAuto = gasState.autoSync; gasState.autoSync = false;
@@ -5858,6 +5958,205 @@ function recScrollH(){
 }
 const recScrollDeb = debounce(recScrollH, 250);
 
+/* Panel flotante de comentarios de sesión (v4.8) */
+const REC_PANEL_POS_KEY       = 'mp_rec_panel_pos';
+const REC_PANEL_COLLAPSED_KEY = 'mp_rec_panel_collapsed';
+const REC_SESSION_BUFFER_KEY  = 'mp_rec_session_buffer';
+
+function _recIsMobile_(){
+  return !!(window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+}
+function recBufferGet(){
+  try {
+    const raw = localStorage.getItem(REC_SESSION_BUFFER_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch(_){ return []; }
+}
+function recBufferAdd(comentario){
+  try {
+    const arr = recBufferGet();
+    arr.push(comentario);
+    localStorage.setItem(REC_SESSION_BUFFER_KEY, JSON.stringify(arr));
+  } catch(e){
+    if (e && e.name === 'QuotaExceededError') toast('Sin espacio en localStorage para guardar el comentario','warn');
+  }
+}
+function recBufferClear(){
+  try { localStorage.removeItem(REC_SESSION_BUFFER_KEY); } catch(_){}
+}
+function recPanelOpenModalDesc_(){
+  const mods = document.getElementById('modals');
+  if (!mods || !mods.lastElementChild) return null;
+  const top = mods.lastElementChild;
+  if (top.id) return top.id;
+  if (top.dataset && top.dataset.key) return top.dataset.key;
+  const inner = top.querySelector('.modal');
+  if (inner && inner.id) return inner.id;
+  return null;
+}
+function recPanelMount(){
+  if (document.getElementById('rec-panel')) return;
+  const html = `
+    <div id="rec-panel" class="rec-panel" role="region" aria-label="Comentario de sesión">
+      <div id="rec-panel-header" class="rec-panel-header">
+        <span class="rec-dot" style="margin-right:0;vertical-align:middle;"></span>
+        <span class="rec-panel-title">Comentario de sesión</span>
+        <span class="rec-panel-count" id="rec-panel-count" title="Comentarios en esta sesión">0</span>
+        <button type="button" id="rec-panel-collapse" class="rec-panel-btn" title="Colapsar / expandir" aria-label="Colapsar">
+          <i data-lucide="chevron-down" class="chev-down"></i>
+        </button>
+      </div>
+      <div id="rec-panel-body" class="rec-panel-body">
+        <textarea id="rec-panel-text" rows="3" placeholder="¿Qué ajuste querés anotar? (Enter para enviar, Shift+Enter para nueva línea)"></textarea>
+        <div class="rec-panel-footer">
+          <span id="rec-panel-msg" class="rec-panel-msg" role="status" aria-live="polite"></span>
+          <span class="text-xs text-slate-500 ml-auto"><span id="rec-panel-count-foot">0</span> comentario(s)</span>
+          <button type="button" id="rec-panel-send" class="btn btn-primary btn-xs" disabled>Enviar</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  const panel = document.getElementById('rec-panel');
+  if (!_recIsMobile_()){
+    try {
+      const raw = localStorage.getItem(REC_PANEL_POS_KEY);
+      if (raw){
+        const p = JSON.parse(raw);
+        if (p && typeof p.left === 'number' && typeof p.top === 'number'){
+          const maxL = Math.max(0, window.innerWidth  - 80);
+          const maxT = Math.max(0, window.innerHeight - 80);
+          panel.style.left   = Math.max(0, Math.min(p.left, maxL)) + 'px';
+          panel.style.top    = Math.max(0, Math.min(p.top,  maxT)) + 'px';
+          panel.style.right  = 'auto';
+          panel.style.bottom = 'auto';
+        }
+      }
+    } catch(_){}
+  }
+  if (localStorage.getItem(REC_PANEL_COLLAPSED_KEY) === '1') panel.classList.add('collapsed');
+  recPanelUpdateCount();
+  const ta     = document.getElementById('rec-panel-text');
+  const btn    = document.getElementById('rec-panel-send');
+  const colBtn = document.getElementById('rec-panel-collapse');
+  const updateBtn = ()=>{ btn.disabled = !ta.value.trim(); };
+  ta.addEventListener('input', updateBtn);
+  ta.addEventListener('keydown', (e)=>{
+    if (e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      recPanelSubmit_();
+    }
+  });
+  btn.addEventListener('click', recPanelSubmit_);
+  colBtn.addEventListener('click', ()=>{
+    panel.classList.toggle('collapsed');
+    try { localStorage.setItem(REC_PANEL_COLLAPSED_KEY, panel.classList.contains('collapsed') ? '1' : '0'); } catch(_){}
+  });
+  if (!_recIsMobile_()){
+    const header = document.getElementById('rec-panel-header');
+    let dragging = false, sx=0, sy=0, ox=0, oy=0;
+    header.addEventListener('mousedown', (e)=>{
+      if (e.target.closest('button')) return;
+      dragging = true;
+      const r = panel.getBoundingClientRect();
+      ox = r.left; oy = r.top;
+      sx = e.clientX; sy = e.clientY;
+      panel.style.right  = 'auto';
+      panel.style.bottom = 'auto';
+      panel.style.left   = ox + 'px';
+      panel.style.top    = oy + 'px';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', recPanelOnDrag_);
+    document.addEventListener('mouseup',   recPanelOnDrop_);
+    panel._dragCtx = {
+      get dragging(){ return dragging; },
+      set dragging(v){ dragging = v; },
+      get sx(){return sx;}, get sy(){return sy;}, get ox(){return ox;}, get oy(){return oy;}
+    };
+  }
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+  setTimeout(()=>{ try { ta.focus(); } catch(_){} }, 30);
+}
+function recPanelOnDrag_(e){
+  const panel = document.getElementById('rec-panel');
+  if (!panel || !panel._dragCtx || !panel._dragCtx.dragging) return;
+  const ctx = panel._dragCtx;
+  const nx = Math.max(0, Math.min(ctx.ox + (e.clientX - ctx.sx), window.innerWidth  - 80));
+  const ny = Math.max(0, Math.min(ctx.oy + (e.clientY - ctx.sy), window.innerHeight - 80));
+  panel.style.left = nx + 'px';
+  panel.style.top  = ny + 'px';
+}
+function recPanelOnDrop_(){
+  const panel = document.getElementById('rec-panel');
+  if (!panel || !panel._dragCtx || !panel._dragCtx.dragging) return;
+  panel._dragCtx.dragging = false;
+  try {
+    localStorage.setItem(REC_PANEL_POS_KEY, JSON.stringify({
+      left: parseFloat(panel.style.left) || 0,
+      top:  parseFloat(panel.style.top)  || 0
+    }));
+  } catch(_){}
+}
+function recPanelUnmount(){
+  document.removeEventListener('mousemove', recPanelOnDrag_);
+  document.removeEventListener('mouseup',   recPanelOnDrop_);
+  const p = document.getElementById('rec-panel');
+  if (p) p.remove();
+}
+function recPanelUpdateCount(){
+  const n = (recState.events || []).filter(ev => ev && ev.type === 'comentario_usuario').length;
+  const h = document.getElementById('rec-panel-count');
+  const f = document.getElementById('rec-panel-count-foot');
+  if (h){
+    h.textContent = String(n);
+    h.title = n === 1 ? '1 comentario en esta sesión' : `${n} comentarios en esta sesión`;
+  }
+  if (f) f.textContent = String(n);
+}
+function recPanelFlashMsg_(text){
+  const el = document.getElementById('rec-panel-msg');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(el._h);
+  el._h = setTimeout(()=>{ el.classList.remove('show'); el.textContent = ''; }, 1500);
+}
+function recPanelSubmit_(){
+  if (!recState.active) return;
+  const ta = document.getElementById('rec-panel-text');
+  if (!ta) return;
+  const texto = (ta.value || '').trim();
+  if (!texto) return;
+  const evs = recState.events || [];
+  const last = evs.length ? evs[evs.length-1] : null;
+  const prev = evs.slice(-3).map(e => ({ ...e }));
+  const cont = document.getElementById('content');
+  const comentario = {
+    type: 'comentario_usuario',
+    iso: new Date().toISOString(),
+    texto,
+    contexto: {
+      view: recCurrentView(),
+      lastTarget: last && last.target ? last.target : null,
+      lastPath:   last && last.path   ? last.path   : null,
+      prevEvents: prev,
+      activeElement: recDescribeTarget(document.activeElement),
+      openModal: recPanelOpenModalDesc_(),
+      scrollTop: cont ? cont.scrollTop : 0
+    }
+  };
+  recPush(comentario);
+  recBufferAdd(comentario);
+  ta.value = '';
+  const btn = document.getElementById('rec-panel-send');
+  if (btn) btn.disabled = true;
+  recPanelUpdateCount();
+  recPanelFlashMsg_('Comentario guardado');
+  try { ta.focus(); } catch(_){}
+}
+
 function recUpdateButton(){
   const lbl = document.getElementById('rec-label');
   const ind = document.getElementById('rec-indicator');
@@ -5885,6 +6184,14 @@ function toggleRecording(){
 
 function startRecording(){
   if (recState.active) return;
+  /* Recuperación de comentarios de una sesión previa no exportada */
+  const buf = recBufferGet();
+  let recovered = [];
+  if (buf.length){
+    const ok = confirm('Hay ' + buf.length + ' comentario(s) de una sesión previa no exportada.\n\nAceptar = incluir en esta grabación\nCancelar = descartar');
+    if (ok) recovered = buf.slice();
+    recBufferClear();
+  }
   recState.active = true;
   recState.events = [];
   recState.startedAt = Date.now();
@@ -5900,7 +6207,13 @@ function startRecording(){
     loaded: !!state.loaded,
     nEquipos: state.equipos.length,
     nEventos: Object.values(state.eventos).reduce((s,a)=>s+a.length,0),
-    nPendientes: Object.values(state.pendientes).reduce((s,a)=>s+a.length,0)
+    nPendientes: Object.values(state.pendientes).reduce((s,a)=>s+a.length,0),
+    recoveredComments: recovered.length
+  });
+  recovered.forEach(c => {
+    if (!c || typeof c !== 'object') return;
+    recState.events.push(Object.assign({}, c, { t: 0, _recovered: true }));
+    recBufferAdd(c);
   });
   document.addEventListener('click',  recClickH,  true);
   document.addEventListener('change', recChangeH, true);
@@ -5909,7 +6222,11 @@ function startRecording(){
   const cont = document.getElementById('content');
   if (cont) cont.addEventListener('scroll', recScrollDeb, true);
   recUpdateButton();
-  toast('Grabación iniciada. Las interacciones se están registrando.', 'ok');
+  recPanelMount();
+  const msg = recovered.length
+    ? 'Grabación iniciada (' + recovered.length + ' comentario(s) recuperados).'
+    : 'Grabación iniciada. Las interacciones se están registrando.';
+  toast(msg, 'ok');
 }
 
 function stopRecording(){
@@ -5925,12 +6242,13 @@ function stopRecording(){
   const payload = {
     version: 1,
     app: 'Gestion MP 2026',
-    appVersion: 'v4.7',
+    appVersion: 'v4.8',
     startedAt: new Date(recState.startedAt).toISOString(),
     durationMs: dur,
     eventCount: recState.events.length,
     events: recState.events
   };
+  let downloadOK = false;
   try {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -5939,12 +6257,15 @@ function stopRecording(){
     a.download = `sesion_MP_${stamp}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
+    downloadOK = true;
     toast(`Grabación detenida (${recState.events.length} eventos en ${(dur/1000).toFixed(1)}s). Archivo descargado.`, 'ok');
   } catch(e){
-    toast('Error al guardar la grabación: '+e.message, 'err');
+    toast('Error al guardar la grabación: '+e.message+'. Los comentarios quedan en el buffer y se ofrecerán al iniciar la próxima grabación.', 'err');
   }
+  if (downloadOK) recBufferClear();
   recState.active = false;
   recState.events = [];
+  recPanelUnmount();
   recUpdateButton();
 }
 
